@@ -1,0 +1,51 @@
+# Dependency directories
+node_modules/
+/frontend/node_modules/
+/backend/target/
+
+# Next.js build output
+.next/
+/frontend/.next/
+out/
+/frontend/out/
+
+# IDE configurations
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+/backend/logs/
+*.log
+
+# Docker/Database data volume (local storage)
+postgres_data/
+
+# Compilation / package manager artifacts
+.pnpm-debug.log*
+package-lock.json
+/frontend/package-lock.json
+.yarn-integrity
+.eslintcache

@@ -8,7 +8,7 @@ spring:
     name: streamly-backend
 
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:${DB_PORT:5432}/streamly_db}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:${DB_PORT:5435}/streamly_db}
     username: ${SPRING_DATASOURCE_USERNAME:streamly_admin}
     password: ${SPRING_DATASOURCE_PASSWORD:streamly_password}
     driver-class-name: org.postgresql.Driver
@@ -26,7 +26,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: "health"
   endpoint:
     health:
       show-details: always
@@ -36,3 +36,9 @@ logging:
     root: INFO
     org.springframework.security: INFO
     org.hibernate.SQL: DEBUG
+
+security:
+  jwt:
+    secret-key: ${JWT_SECRET_KEY:dGhpcy1pcy1hLXNlY3VyZS1zZWNyZXQta2V5LXRvLWJlLXVzZWQtZm9yLWp3dC10b2tlbi1nZW5lcmF0aW9uLXN0cmVhbWx5}
+    access-token-expiration: 900000 # 15 minutes in ms
+    refresh-token-expiration: 604800000 # 7 days in ms

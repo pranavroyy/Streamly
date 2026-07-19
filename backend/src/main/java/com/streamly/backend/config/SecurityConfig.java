@@ -25,8 +25,8 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authorize -> authorize
                 .requestMatchers("/actuator/**").permitAll()
-                .requestMatchers("/api/v1/health").permitAll()
-                .requestMatchers("/api/v1/**").permitAll() // Permissive for development, JWT will guard routes later
+                .requestMatchers("/v1/health", "/api/v1/health").permitAll()
+                .requestMatchers("/v1/**", "/api/v1/**").permitAll() // Permissive for development, JWT will guard routes later
                 .anyRequest().authenticated()
             );
 

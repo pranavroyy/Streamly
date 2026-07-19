@@ -8,7 +8,7 @@ spring:
     name: streamly-backend
 
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/streamly_db}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:${DB_PORT:5432}/streamly_db}
     username: ${SPRING_DATASOURCE_USERNAME:streamly_admin}
     password: ${SPRING_DATASOURCE_PASSWORD:streamly_password}
     driver-class-name: org.postgresql.Driver

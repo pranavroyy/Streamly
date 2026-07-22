@@ -71,6 +71,57 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
     }
 
+    @ExceptionHandler({
+        org.springframework.security.authentication.BadCredentialsException.class,
+        org.springframework.security.core.userdetails.UsernameNotFoundException.class
+    })
+    public ResponseEntity<ErrorResponse> handleBadCredentialsException(Exception ex) {
+        log.warn("Authentication failed: {}", ex.getMessage());
+        ErrorResponse response = ErrorResponse.builder()
+            .timestamp(LocalDateTime.now())
+            .status(HttpStatus.UNAUTHORIZED.value())
+            .error(HttpStatus.UNAUTHORIZED.getReasonPhrase())
+            .message("Invalid email or password")
+            .build();
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+    }
+
+    @ExceptionHandler(io.jsonwebtoken.JwtException.class)
+    public ResponseEntity<ErrorResponse> handleJwtException(io.jsonwebtoken.JwtException ex) {
+        log.warn("JWT validation failed: {}", ex.getMessage());
+        ErrorResponse response = ErrorResponse.builder()
+            .timestamp(LocalDateTime.now())
+            .status(HttpStatus.UNAUTHORIZED.value())
+            .error(HttpStatus.UNAUTHORIZED.getReasonPhrase())
+            .message("Invalid or expired JWT token")
+            .build();
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+    }
+
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDeniedException(org.springframework.security.access.AccessDeniedException ex) {
+        log.warn("Access denied: {}", ex.getMessage());
+        ErrorResponse response = ErrorResponse.builder()
+            .timestamp(LocalDateTime.now())
+            .status(HttpStatus.FORBIDDEN.value())
+            .error(HttpStatus.FORBIDDEN.getReasonPhrase())
+            .message("Access denied")
+            .build();
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+    }
+
+    @ExceptionHandler(org.springframework.security.core.AuthenticationException.class)
+    public ResponseEntity<ErrorResponse> handleAuthenticationException(org.springframework.security.core.AuthenticationException ex) {
+        log.warn("Authentication exception: {}", ex.getMessage());
+        ErrorResponse response = ErrorResponse.builder()
+            .timestamp(LocalDateTime.now())
+            .status(HttpStatus.UNAUTHORIZED.value())
+            .error(HttpStatus.UNAUTHORIZED.getReasonPhrase())
+            .message("Unauthorized: " + ex.getMessage())
+            .build();
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGenericException(Exception ex) {
         log.error("An unexpected error occurred", ex);

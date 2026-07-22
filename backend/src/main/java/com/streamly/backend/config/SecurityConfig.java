@@ -1,5 +1,6 @@
 package com.streamly.backend.config;
 
+import com.streamly.backend.auth.exception.JwtAuthenticationEntryPoint;
 import com.streamly.backend.auth.filter.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -30,6 +31,7 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final UserDetailsService userDetailsService;
+    private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -37,10 +39,14 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .exceptionHandling(exception -> exception.authenticationEntryPoint(jwtAuthenticationEntryPoint))
             .authorizeHttpRequests(authorize -> authorize
                 .requestMatchers("/actuator/**").permitAll()
                 .requestMatchers("/v1/health", "/api/v1/health").permitAll()
-                .requestMatchers("/v1/auth/**", "/api/v1/auth/**").permitAll()
+                .requestMatchers(
+                    "/v1/auth/register", "/v1/auth/login", "/v1/auth/refresh",
+                    "/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh"
+                ).permitAll()
                 .anyRequest().authenticated()
             )
             .authenticationProvider(authenticationProvider())

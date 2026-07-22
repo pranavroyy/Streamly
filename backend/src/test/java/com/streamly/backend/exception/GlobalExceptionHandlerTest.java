@@ -1,21 +1,29 @@
 package com.streamly.backend.exception;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.streamly.backend.auth.exception.JwtAuthenticationEntryPoint;
+import com.streamly.backend.auth.filter.JwtAuthenticationFilter;
+import com.streamly.backend.auth.service.JwtService;
+import com.streamly.backend.config.SecurityConfig;
 import com.streamly.backend.dto.ErrorResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-import com.streamly.backend.config.SecurityConfig;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -23,7 +31,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = {GlobalExceptionHandlerTest.TestController.class})
-@Import({SecurityConfig.class, GlobalExceptionHandler.class, GlobalExceptionHandlerTest.TestController.class})
+@Import({SecurityConfig.class, GlobalExceptionHandler.class, JwtAuthenticationEntryPoint.class, GlobalExceptionHandlerTest.TestController.class})
+@AutoConfigureMockMvc(addFilters = false)
 public class GlobalExceptionHandlerTest {
 
     @Autowired
@@ -31,6 +40,15 @@ public class GlobalExceptionHandlerTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @MockBean
+    private JwtAuthenticationFilter jwtAuthFilter;
+
+    @MockBean
+    private UserDetailsService userDetailsService;
+
+    @MockBean
+    private JwtService jwtService;
 
     @Data
     public static class DummyRequest {
@@ -53,6 +71,21 @@ public class GlobalExceptionHandlerTest {
         @GetMapping("/v1/test/generic")
         public void throwGeneric() {
             throw new RuntimeException("Generic message");
+        }
+
+        @GetMapping("/v1/test/bad-credentials")
+        public void throwBadCredentials() {
+            throw new BadCredentialsException("Bad credentials");
+        }
+
+        @GetMapping("/v1/test/user-not-found")
+        public void throwUserNotFound() {
+            throw new UsernameNotFoundException("User not found");
+        }
+
+        @GetMapping("/v1/test/jwt-exception")
+        public void throwJwtException() {
+            throw new io.jsonwebtoken.JwtException("Invalid token signature");
         }
 
         @PostMapping("/v1/test/validation")
@@ -94,6 +127,42 @@ public class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.status").value(500))
                 .andExpect(jsonPath("$.error").value("Internal Server Error"))
                 .andExpect(jsonPath("$.message").value("An internal server error occurred. Please try again later."))
+                .andExpect(jsonPath("$.details").isEmpty());
+    }
+
+    @Test
+    public void testBadCredentialsExceptionShape() throws Exception {
+        mockMvc.perform(get("/v1/test/bad-credentials")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.error").value("Unauthorized"))
+                .andExpect(jsonPath("$.message").value("Invalid email or password"))
+                .andExpect(jsonPath("$.details").isEmpty());
+    }
+
+    @Test
+    public void testUserNotFoundExceptionShape() throws Exception {
+        mockMvc.perform(get("/v1/test/user-not-found")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.error").value("Unauthorized"))
+                .andExpect(jsonPath("$.message").value("Invalid email or password"))
+                .andExpect(jsonPath("$.details").isEmpty());
+    }
+
+    @Test
+    public void testJwtExceptionShape() throws Exception {
+        mockMvc.perform(get("/v1/test/jwt-exception")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.error").value("Unauthorized"))
+                .andExpect(jsonPath("$.message").value("Invalid or expired JWT token"))
                 .andExpect(jsonPath("$.details").isEmpty());
     }
 

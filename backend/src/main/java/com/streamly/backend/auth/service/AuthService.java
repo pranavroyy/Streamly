@@ -5,6 +5,7 @@ import com.streamly.backend.auth.dto.LoginRequest;
 import com.streamly.backend.auth.dto.RegisterRequest;
 import com.streamly.backend.auth.entity.RefreshToken;
 import com.streamly.backend.auth.repository.RefreshTokenRepository;
+import com.streamly.backend.exception.BadRequestException;
 import com.streamly.backend.exception.ConflictException;
 import com.streamly.backend.user.entity.Role;
 import com.streamly.backend.user.entity.User;
@@ -12,6 +13,7 @@ import com.streamly.backend.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -69,7 +71,7 @@ public class AuthService {
         );
 
         User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new IllegalArgumentException("Invalid email or password"));
+                .orElseThrow(() -> new BadCredentialsException("Invalid email or password"));
 
         String accessToken = jwtService.generateToken(user);
         RefreshToken refreshToken = createRefreshToken(user);
@@ -98,11 +100,11 @@ public class AuthService {
     @Transactional
     public AuthResponse refreshAccessToken(String requestRefreshToken) {
         RefreshToken refreshToken = refreshTokenRepository.findByToken(requestRefreshToken)
-                .orElseThrow(() -> new IllegalArgumentException("Refresh token is not found in database"));
+                .orElseThrow(() -> new BadRequestException("Refresh token is not found in database"));
 
         if (refreshToken.getExpiryDate().isBefore(Instant.now())) {
             refreshTokenRepository.delete(refreshToken);
-            throw new IllegalArgumentException("Refresh token was expired. Please make a new login request");
+            throw new BadRequestException("Refresh token was expired. Please make a new login request");
         }
 
         User user = refreshToken.getUser();

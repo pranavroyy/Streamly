@@ -1,8 +1,10 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { 
   Radio, 
   Activity, 
@@ -13,7 +15,10 @@ import {
   FolderLock, 
   Layers,
   Sparkles,
-  Server
+  Server,
+  LogOut,
+  User as UserIcon,
+  LayoutDashboard
 } from "lucide-react";
 
 interface HealthData {
@@ -23,6 +28,8 @@ interface HealthData {
 }
 
 export default function HomePage() {
+  const { user, isAuthenticated, logout } = useAuth();
+
   // Query to fetch the backend health check
   const { data: health, isLoading, isError, error } = useQuery<HealthData>({
     queryKey: ["healthCheck"],
@@ -43,7 +50,7 @@ export default function HomePage() {
       {/* Header */}
       <header className="w-full border-b border-zinc-800/80 bg-black/40 backdrop-blur-md px-6 py-4 flex items-center justify-between z-10">
         <div className="flex items-center gap-2">
-          <div className="bg-primary p-2 rounded-lg text-white shadow-lg shadow-primary/20">
+          <div className="bg-purple-600 p-2 rounded-lg text-white shadow-lg shadow-purple-600/20">
             <Radio className="w-6 h-6 animate-pulse" />
           </div>
           <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent">
@@ -79,9 +86,40 @@ export default function HomePage() {
             </span>
           </div>
 
-          <button className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 text-zinc-300 transition-all rounded-full p-2">
-            <Settings className="w-4 h-4" />
-          </button>
+          {isAuthenticated ? (
+            <div className="flex items-center gap-3">
+              <Link
+                href="/dashboard"
+                className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white rounded-full px-4 py-1.5 text-xs font-medium transition-all shadow-md shadow-purple-600/20"
+              >
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                <span>Dashboard</span>
+              </Link>
+
+              <button
+                onClick={logout}
+                className="flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 transition-all rounded-full px-3.5 py-1.5 text-xs font-medium"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Sign Out</span>
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <Link
+                href="/login"
+                className="text-xs font-medium text-zinc-300 hover:text-white px-3 py-1.5 transition-colors"
+              >
+                Sign In
+              </Link>
+              <Link
+                href="/register"
+                className="bg-purple-600 hover:bg-purple-500 text-white rounded-full px-4 py-1.5 text-xs font-medium transition-all shadow-md shadow-purple-600/20"
+              >
+                Register
+              </Link>
+            </div>
+          )}
         </div>
       </header>
 

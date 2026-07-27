@@ -51,6 +51,7 @@ public class AuthController {
         }
         return ResponseEntity.ok(
                 UserResponse.builder()
+                        .id(user.getId())
                         .email(user.getEmail())
                         .fullName(user.getFullName())
                         .roles(user.getRoles().stream().map(Enum::name).collect(Collectors.toSet()))

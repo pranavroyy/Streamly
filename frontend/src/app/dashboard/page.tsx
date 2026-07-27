@@ -1,65 +1,80 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
-import Link from "next/link";
+import { roomsApi, RoomResponse } from "@/lib/roomsApi";
+import Navbar from "@/components/Navbar";
+import RoomActionModal from "@/components/RoomActionModal";
+import RoomCard from "@/components/RoomCard";
+import { useRouter } from "next/navigation";
 import { 
-  Radio, 
-  LogOut, 
-  User as UserIcon, 
   Video, 
   Plus, 
-  Sparkles, 
   ShieldCheck, 
   Sliders, 
-  Clock,
-  HardDrive
+  HardDrive,
+  Link2,
+  RefreshCw,
+  Loader2,
+  Tv
 } from "lucide-react";
 
 function DashboardContent() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const router = useRouter();
+
+  const [rooms, setRooms] = useState<RoomResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [modalState, setModalState] = useState<{ isOpen: boolean; mode: "create" | "join" }>({
+    isOpen: false,
+    mode: "create",
+  });
+
+  const fetchRooms = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await roomsApi.listMyRooms();
+      setRooms(data);
+    } catch (err: any) {
+      setError(err.message || "Failed to load studio rooms");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchRooms();
+  }, [fetchRooms]);
+
+  const handleSuccess = useCallback((result: RoomResponse | number) => {
+    fetchRooms();
+    const targetId = typeof result === "number" ? result : result.id;
+    router.push(`/rooms/${targetId}`);
+  }, [fetchRooms, router]);
+
+  const closeModal = useCallback(() => {
+    setModalState((prev) => ({ ...prev, isOpen: false }));
+  }, []);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-black to-zinc-950 flex flex-col justify-between">
       {/* Background glow */}
       <div className="absolute top-0 right-1/4 w-[500px] h-[500px] bg-purple-600/10 rounded-full blur-[120px] pointer-events-none" />
 
-      {/* Header */}
-      <header className="w-full border-b border-zinc-800/80 bg-black/40 backdrop-blur-md px-6 py-4 flex items-center justify-between z-10">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="bg-purple-600 p-2 rounded-lg text-white shadow-lg shadow-purple-600/20">
-            <Radio className="w-5 h-5 animate-pulse" />
-          </div>
-          <span className="text-xl font-bold tracking-tight text-white">Streamly</span>
-          <span className="text-[10px] uppercase tracking-widest bg-purple-950 text-purple-400 border border-purple-800/60 px-2 py-0.5 rounded font-mono">
-            Dashboard
-          </span>
-        </Link>
-
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-full px-4 py-1.5 text-xs text-zinc-300">
-            <UserIcon className="w-3.5 h-3.5 text-purple-400" />
-            <span className="font-medium text-white">{user?.fullName || "Streamly Creator"}</span>
-          </div>
-
-          <button
-            onClick={logout}
-            className="flex items-center gap-2 bg-zinc-900 hover:bg-red-500/10 border border-zinc-800 hover:border-red-500/40 text-zinc-400 hover:text-red-400 transition-all rounded-full px-4 py-1.5 text-xs font-medium"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>Sign Out</span>
-          </button>
-        </div>
-      </header>
+      {/* Shared Modular Navbar */}
+      <Navbar />
 
       {/* Main Studio Body */}
       <main className="max-w-6xl w-full mx-auto p-6 md:p-8 flex-1 flex flex-col gap-8 z-10">
         
-        {/* Welcome Section */}
+        {/* Welcome & Quick Action Banner */}
         <div className="bg-gradient-to-r from-purple-900/30 via-zinc-900/80 to-zinc-900/40 border border-purple-500/20 p-8 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-purple-400 bg-purple-500/10 px-3 py-1 rounded-full border border-purple-500/20">
+            <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-purple-400 bg-purple-500/10 px-3.5 py-1 rounded-full border border-purple-500/20">
               <ShieldCheck className="w-3.5 h-3.5" />
               Authenticated Session
             </div>
@@ -71,46 +86,137 @@ function DashboardContent() {
             </p>
           </div>
 
-          <button className="bg-purple-600 hover:bg-purple-500 text-white px-5 py-3 rounded-xl font-medium text-sm shadow-lg shadow-purple-600/30 transition-all flex items-center gap-2">
-            <Plus className="w-4 h-4" />
-            Create Studio Session
-          </button>
+          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            <button
+              onClick={() => setModalState({ isOpen: true, mode: "create" })}
+              className="flex-1 md:flex-none bg-purple-600 hover:bg-purple-500 text-white px-5 py-3 rounded-xl font-semibold text-xs shadow-lg shadow-purple-600/30 transition-all flex items-center justify-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create Studio Room</span>
+            </button>
+
+            <button
+              onClick={() => setModalState({ isOpen: true, mode: "join" })}
+              className="flex-1 md:flex-none bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 px-5 py-3 rounded-xl font-semibold text-xs transition-all flex items-center justify-center gap-2"
+            >
+              <Link2 className="w-4 h-4 text-indigo-400" />
+              <span>Join by Code/Link</span>
+            </button>
+          </div>
         </div>
 
-        {/* Dashboard Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-zinc-900/60 border border-zinc-800 p-6 rounded-xl space-y-4">
-            <div className="w-10 h-10 rounded-lg bg-purple-600/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
-              <Video className="w-5 h-5" />
+        {/* Room List Section */}
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <Tv className="w-5 h-5 text-purple-400" />
+              <h2 className="text-xl font-bold text-white tracking-tight">Your Studio Rooms</h2>
+              <span className="bg-zinc-800 text-zinc-300 text-xs px-2.5 py-0.5 rounded-full font-mono font-medium">
+                {rooms.length}
+              </span>
             </div>
-            <h3 className="font-semibold text-lg text-white">Recording Studio</h3>
+
+            <button
+              onClick={fetchRooms}
+              disabled={loading}
+              className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white transition-colors p-2 rounded-lg hover:bg-zinc-900"
+              title="Refresh Room List"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+              <span>Refresh</span>
+            </button>
+          </div>
+
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-xs p-4 rounded-xl font-medium">
+              {error}
+            </div>
+          )}
+
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-zinc-500 bg-zinc-900/30 border border-zinc-800/60 rounded-2xl">
+              <Loader2 className="w-6 h-6 animate-spin text-purple-400" />
+              <p className="text-xs font-medium">Loading your studio rooms...</p>
+            </div>
+          ) : rooms.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 px-4 gap-4 text-center bg-zinc-900/40 border border-zinc-800/80 rounded-2xl">
+              <div className="w-12 h-12 rounded-full bg-purple-600/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                <Video className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-white">No Studio Rooms Yet</h3>
+                <p className="text-xs text-zinc-400 max-w-sm">
+                  Create a new studio room to start high-fidelity recording, or join an existing session with an invite code or link.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  onClick={() => setModalState({ isOpen: true, mode: "create" })}
+                  className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2.5 rounded-xl text-xs font-semibold shadow-lg shadow-purple-600/20 transition-all flex items-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  Create Room
+                </button>
+                <button
+                  onClick={() => setModalState({ isOpen: true, mode: "join" })}
+                  className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5"
+                >
+                  <Link2 className="w-4 h-4 text-indigo-400" />
+                  Join Room
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {rooms.map((room) => (
+                <RoomCard key={room.id} room={room} onRefresh={fetchRooms} />
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Feature Capabilities Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-zinc-800/60">
+          <div className="bg-zinc-900/40 border border-zinc-800 p-6 rounded-xl space-y-3">
+            <div className="w-9 h-9 rounded-lg bg-purple-600/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+              <Video className="w-4 h-4" />
+            </div>
+            <h3 className="font-semibold text-sm text-white">Multi-track Recording</h3>
             <p className="text-xs text-zinc-400 leading-relaxed">
-              Launch high-definition multi-track local recording for audio & video streams.
+              Capture independent uncompressed audio & video streams directly on client hardware.
             </p>
           </div>
 
-          <div className="bg-zinc-900/60 border border-zinc-800 p-6 rounded-xl space-y-4">
-            <div className="w-10 h-10 rounded-lg bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
-              <HardDrive className="w-5 h-5" />
+          <div className="bg-zinc-900/40 border border-zinc-800 p-6 rounded-xl space-y-3">
+            <div className="w-9 h-9 rounded-lg bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+              <HardDrive className="w-4 h-4" />
             </div>
-            <h3 className="font-semibold text-lg text-white">Cloud Storage</h3>
+            <h3 className="font-semibold text-sm text-white">Reliable Cloud Sync</h3>
             <p className="text-xs text-zinc-400 leading-relaxed">
               Local media chunks are automatically synchronized and uploaded securely.
             </p>
           </div>
 
-          <div className="bg-zinc-900/60 border border-zinc-800 p-6 rounded-xl space-y-4">
-            <div className="w-10 h-10 rounded-lg bg-emerald-600/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-              <Sliders className="w-5 h-5" />
+          <div className="bg-zinc-900/40 border border-zinc-800 p-6 rounded-xl space-y-3">
+            <div className="w-9 h-9 rounded-lg bg-emerald-600/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+              <Sliders className="w-4 h-4" />
             </div>
-            <h3 className="font-semibold text-lg text-white">Audio Settings</h3>
+            <h3 className="font-semibold text-sm text-white">Role-Based Control</h3>
             <p className="text-xs text-zinc-400 leading-relaxed">
-              Configure noise suppression, gain control, and sample rate settings.
+              Host controls room lifecycle while participants join seamlessly via direct link.
             </p>
           </div>
         </div>
 
       </main>
+
+      {/* Unified Room Action Modal */}
+      <RoomActionModal
+        isOpen={modalState.isOpen}
+        mode={modalState.mode}
+        onClose={closeModal}
+        onSuccess={handleSuccess}
+      />
 
       {/* Footer */}
       <footer className="w-full border-t border-zinc-800/80 py-4 text-center text-xs text-zinc-500">

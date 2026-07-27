@@ -11,22 +11,33 @@ export const api = axios.create({
   },
 });
 
-// Helper functions for auth storage
+// Fast In-Memory Token Cache to avoid synchronous localStorage disk reads on every HTTP call
+let memoryAccessToken: string | null = null;
+let memoryRefreshToken: string | null = null;
+
 export const getAccessToken = (): string | null => {
+  if (memoryAccessToken) return memoryAccessToken;
   if (typeof window !== "undefined") {
-    return localStorage.getItem("accessToken");
+    memoryAccessToken = localStorage.getItem("accessToken");
+    return memoryAccessToken;
   }
   return null;
 };
 
 export const getRefreshToken = (): string | null => {
+  if (memoryRefreshToken) return memoryRefreshToken;
   if (typeof window !== "undefined") {
-    return localStorage.getItem("refreshToken");
+    memoryRefreshToken = localStorage.getItem("refreshToken");
+    return memoryRefreshToken;
   }
   return null;
 };
 
 export const setTokens = (accessToken: string, refreshToken?: string) => {
+  memoryAccessToken = accessToken;
+  if (refreshToken) {
+    memoryRefreshToken = refreshToken;
+  }
   if (typeof window !== "undefined") {
     localStorage.setItem("accessToken", accessToken);
     if (refreshToken) {
@@ -36,6 +47,8 @@ export const setTokens = (accessToken: string, refreshToken?: string) => {
 };
 
 export const clearAuthStorage = () => {
+  memoryAccessToken = null;
+  memoryRefreshToken = null;
   if (typeof window !== "undefined") {
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
@@ -44,7 +57,7 @@ export const clearAuthStorage = () => {
   }
 };
 
-// Request Interceptor: Attach access token to headers
+// Request Interceptor: Attach access token to headers instantly
 api.interceptors.request.use(
   (config) => {
     const token = getAccessToken();
@@ -53,9 +66,7 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 // Response Interceptor: Handle 401 errors, token refresh, and redirect to login
@@ -64,18 +75,15 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    // Check if error status is 401 and request was not already retried
     if (error.response?.status === 401 && !originalRequest._retry) {
-      // Avoid looping on auth endpoints (login, register, refresh)
       const isAuthEndpoint = originalRequest.url?.includes("/v1/auth/");
-      
+
       if (!isAuthEndpoint) {
         originalRequest._retry = true;
         const refreshToken = getRefreshToken();
 
         if (refreshToken) {
           try {
-            // Request new token pair from refresh endpoint
             const response = await axios.post(`${API_BASE_URL}/v1/auth/refresh`, {
               refreshToken,
             });
@@ -83,7 +91,6 @@ api.interceptors.response.use(
             const { accessToken, refreshToken: newRefreshToken } = response.data;
             setTokens(accessToken, newRefreshToken);
 
-            // Retry original request with updated token
             originalRequest.headers["Authorization"] = `Bearer ${accessToken}`;
             return api(originalRequest);
           } catch (refreshError) {

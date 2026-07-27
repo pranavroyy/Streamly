@@ -5,6 +5,7 @@ import { api, getAccessToken, getRefreshToken, setTokens, clearAuthStorage } fro
 import { useRouter } from "next/navigation";
 
 export interface User {
+  id?: number;
   email: string;
   fullName: string;
   roles?: string[];
@@ -61,13 +62,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     try {
       const response = await api.post("/v1/auth/login", { email, password });
-      const { accessToken: newAccessToken, refreshToken: newRefreshToken, email: userEmail, fullName } = response.data;
+      const { accessToken: newAccessToken, refreshToken: newRefreshToken, id, email: userEmail, fullName } = response.data;
 
       setTokens(newAccessToken, newRefreshToken);
       setAccessTokenState(newAccessToken);
       setRefreshTokenState(newRefreshToken || null);
 
-      const userObj: User = { email: userEmail, fullName };
+      const userObj: User = { id, email: userEmail, fullName };
       setUser(userObj);
 
       // Save name & email to storage for fallback UI display
@@ -89,13 +90,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         password,
       });
 
-      const { accessToken: newAccessToken, refreshToken: newRefreshToken, email: userEmail, fullName: name } = response.data;
+      const { accessToken: newAccessToken, refreshToken: newRefreshToken, id, email: userEmail, fullName: name } = response.data;
 
       setTokens(newAccessToken, newRefreshToken);
       setAccessTokenState(newAccessToken);
       setRefreshTokenState(newRefreshToken || null);
 
-      const userObj: User = { email: userEmail, fullName: name };
+      const userObj: User = { id, email: userEmail, fullName: name };
       setUser(userObj);
 
       if (typeof window !== "undefined") {

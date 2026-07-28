@@ -43,6 +43,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(authorize -> authorize
                 .requestMatchers("/actuator/**").permitAll()
                 .requestMatchers("/v1/health", "/api/v1/health").permitAll()
+                .requestMatchers("/ws/**", "/ws").permitAll()
                 .requestMatchers(
                     "/v1/auth/register", "/v1/auth/login", "/v1/auth/refresh",
                     "/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh"

@@ -1,6 +1,7 @@
 package com.streamly.backend.signaling;
 
 import com.streamly.backend.signaling.model.Participant;
+import com.streamly.backend.signaling.model.Room;
 import com.streamly.backend.signaling.service.SignalingRoomService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -23,8 +24,8 @@ class SignalingRoomServiceTest {
     @Test
     @DisplayName("Should successfully join a user to a room")
     void testJoinRoomSuccess() {
-        boolean joined = roomService.joinRoom("room-1", "user-A", "session-A");
-        assertTrue(joined, "User A should successfully join room-1");
+        Room.JoinStatus status = roomService.joinRoom("room-1", "user-A", "session-A");
+        assertEquals(Room.JoinStatus.JOINED, status, "User A should successfully join room-1");
 
         assertTrue(roomService.roomExists("room-1"));
         Collection<Participant> participants = roomService.getParticipants("room-1");
@@ -37,13 +38,13 @@ class SignalingRoomServiceTest {
     }
 
     @Test
-    @DisplayName("Should prevent duplicate joins for the same user ID in a room")
+    @DisplayName("Should prevent duplicate joins for active user with different session ID")
     void testPreventDuplicateJoin() {
-        boolean firstJoin = roomService.joinRoom("room-1", "user-A", "session-A");
-        assertTrue(firstJoin);
+        Room.JoinStatus firstJoin = roomService.joinRoom("room-1", "user-A", "session-A");
+        assertEquals(Room.JoinStatus.JOINED, firstJoin);
 
-        boolean secondJoin = roomService.joinRoom("room-1", "user-A", "session-A2");
-        assertFalse(secondJoin, "Duplicate join attempt for user-A should be rejected");
+        Room.JoinStatus secondJoin = roomService.joinRoom("room-1", "user-A", "session-A2");
+        assertEquals(Room.JoinStatus.DUPLICATE_REJECTED, secondJoin, "Duplicate join attempt for user-A should be rejected");
 
         Collection<Participant> participants = roomService.getParticipants("room-1");
         assertEquals(1, participants.size());

@@ -1,17 +1,21 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
-import { roomsApi, RoomResponse } from "@/lib/roomsApi";
+import { roomsApi, RoomResponse, ParticipantResponse } from "@/lib/roomsApi";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { useSignaling } from "@/hooks/useSignaling";
+import { useCopyClipboard } from "@/hooks/useCopyClipboard";
+import { isRoomOwner } from "@/lib/utils";
+import DeleteRoomModal from "@/components/DeleteRoomModal";
+import { SignalingLogEntry, SignalingMessage } from "@/types/signaling";
 import { 
   Radio, 
   ArrowLeft, 
   Users, 
   Crown, 
-  Shield, 
   Copy, 
   Check, 
   LogOut, 
@@ -19,7 +23,14 @@ import {
   Loader2, 
   Video,
   Mic,
-  AlertCircle
+  AlertCircle,
+  RefreshCw,
+  Terminal,
+  Trash,
+  ChevronRight,
+  ChevronDown,
+  Zap,
+  Activity
 } from "lucide-react";
 
 function RoomDetailContent() {
@@ -30,13 +41,23 @@ function RoomDetailContent() {
   const [room, setRoom] = useState<RoomResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const roomIdStr = Array.isArray(id) ? id[0] : id;
+  // Copy clipboard hook
+  const { copied, copy } = useCopyClipboard();
 
+  // Log Panel State
+  const [showLogPanel, setShowLogPanel] = useState(true);
+  const [logFilter, setLogFilter] = useState<"ALL" | "SIGNALING" | "WEBRTC" | "ERROR">("ALL");
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [testTargetId, setTestTargetId] = useState<string>("");
+
+  const roomIdStr = Array.isArray(id) ? id[0] : id;
+  const currentUserId = user?.id ? String(user.id) : user?.email || "";
+
+  // 1. Initial REST fetch for room baseline
   const fetchRoomDetails = useCallback(async () => {
     if (!roomIdStr) return;
     setLoading(true);
@@ -51,16 +72,86 @@ function RoomDetailContent() {
     }
   }, [roomIdStr]);
 
+  // Silent background refresh for room participant list
+  const refreshRoomData = useCallback(async () => {
+    if (!roomIdStr) return;
+    try {
+      const data = await roomsApi.getRoom(roomIdStr);
+      setRoom(data);
+    } catch (e) {
+      // Ignore background refresh errors
+    }
+  }, [roomIdStr]);
+
   useEffect(() => {
     fetchRoomDetails();
   }, [fetchRoomDetails]);
 
+  // Handle incoming WS events to silently refresh room state
+  const handleWsMessage = useCallback(
+    (msg: SignalingMessage) => {
+      if (msg.type === "JOIN" || msg.type === "LEAVE" || msg.type === "ROOM_STATE") {
+        refreshRoomData();
+      }
+    },
+    [refreshRoomData]
+  );
+
+  // 2. Initialize WS Signaling Hook (`useSignaling`)
+  const {
+    status: wsStatus,
+    reconnectAttempt,
+    participants: wsParticipants,
+    logs: signalingLogs,
+    connect: wsConnect,
+    disconnect: wsDisconnect,
+    sendOffer,
+    sendAnswer,
+    sendIceCandidate,
+    sendLeave: wsSendLeave,
+    clearLogs,
+    simulateNetworkDrop,
+  } = useSignaling({
+    roomId: roomIdStr,
+    userId: currentUserId,
+    autoConnect: !!room && !!currentUserId,
+    onMessage: handleWsMessage,
+  });
+
+  // Sync REST participant list with real-time WS updates
+  const displayParticipants = useMemo(() => {
+    if (!room) return [];
+    const restParticipants = room.participants || [];
+
+    if (wsParticipants.length === 0) return restParticipants;
+
+    const existingMap = new Map<string, ParticipantResponse>();
+    restParticipants.forEach((p) => {
+      existingMap.set(String(p.userId), p);
+    });
+
+    return wsParticipants.map((wp, index) => {
+      const wpUserIdStr = String(wp.userId);
+      const existing = existingMap.get(wpUserIdStr);
+      if (existing) return existing;
+
+      // Fallback formatting if REST data is still loading
+      const isCurrent = wpUserIdStr === currentUserId;
+      return {
+        id: Date.now() + index,
+        roomId: Number(roomIdStr),
+        userId: Number(wp.userId) || index + 900,
+        userEmail: wp.userId.includes("@") ? wp.userId : `user-${wp.userId}@streamly.local`,
+        userFullName: isCurrent ? user?.fullName || `User ${wp.userId}` : `User ${wp.userId}`,
+        role: "SPEAKER" as const,
+        joinedAt: wp.joinedAt || new Date().toISOString(),
+      };
+    });
+  }, [room, wsParticipants, currentUserId, user, roomIdStr]);
+
   const handleCopyInvite = () => {
     if (typeof window !== "undefined") {
-      const url = window.location.href;
-      navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      copy(window.location.href);
     }
   };
 
@@ -68,6 +159,7 @@ function RoomDetailContent() {
     if (!roomIdStr) return;
     setLeaving(true);
     try {
+      wsSendLeave();
       await roomsApi.leaveRoom(roomIdStr);
       router.push("/dashboard");
     } catch (err: any) {
@@ -80,6 +172,7 @@ function RoomDetailContent() {
     if (!roomIdStr) return;
     setDeleting(true);
     try {
+      wsSendLeave();
       await roomsApi.deleteRoom(roomIdStr);
       setShowDeleteConfirm(false);
       router.push("/dashboard");
@@ -89,15 +182,45 @@ function RoomDetailContent() {
     }
   };
 
-  const isOwner = user?.id && room ? room.ownerId === user.id : user?.fullName === room?.ownerName;
+  const isOwner = isRoomOwner(room, user);
+
+  // Filter signaling logs
+  const filteredLogs = useMemo(() => {
+    return signalingLogs.filter((log) => {
+      if (logFilter === "ALL") return true;
+      if (logFilter === "ERROR") return log.type === "ERROR" || log.direction === "system";
+      if (logFilter === "SIGNALING") return log.type === "JOIN" || log.type === "LEAVE" || log.type === "ROOM_STATE";
+      if (logFilter === "WEBRTC") return log.type === "OFFER" || log.type === "ANSWER" || log.type === "ICE_CANDIDATE";
+      return true;
+    });
+  }, [signalingLogs, logFilter]);
+
+  // Test signaling actions
+  const targetUserForTest = testTargetId || displayParticipants.find((p) => String(p.userId) !== currentUserId)?.userId?.toString() || "2";
+
+  const handleSendTestOffer = () => {
+    sendOffer(targetUserForTest, `v=0\r\no=- ${Date.now()} 2 IN IP4 127.0.0.1\r\ns=StreamlyTestOffer`);
+  };
+
+  const handleSendTestAnswer = () => {
+    sendAnswer(targetUserForTest, `v=0\r\no=- ${Date.now()} 2 IN IP4 127.0.0.1\r\ns=StreamlyTestAnswer`);
+  };
+
+  const handleSendTestIce = () => {
+    sendIceCandidate(targetUserForTest, {
+      candidate: `candidate:842163049 1 udp 1677721601 192.168.1.5 ${Math.floor(Math.random() * 50000 + 10000)} typ host`,
+      sdpMid: "0",
+      sdpMLineIndex: 0,
+    });
+  };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-black to-zinc-950 flex flex-col justify-between">
-      {/* Glow background */}
+    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-black to-zinc-950 flex flex-col justify-between text-zinc-100">
+      {/* Ambient background glow */}
       <div className="absolute top-0 left-1/3 w-[600px] h-[600px] bg-purple-600/10 rounded-full blur-[140px] pointer-events-none" />
 
-      {/* Header */}
-      <header className="w-full border-b border-zinc-800/80 bg-black/40 backdrop-blur-md px-6 py-4 flex items-center justify-between z-10">
+      {/* Main Studio Header */}
+      <header className="w-full border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md px-6 py-4 flex items-center justify-between z-40 sticky top-0 shadow-lg shadow-black/20">
         <div className="flex items-center gap-4">
           <Link
             href="/dashboard"
@@ -115,10 +238,61 @@ function RoomDetailContent() {
             </div>
             <span className="text-sm font-bold text-white tracking-tight">Studio Session</span>
           </div>
+
+          {/* WebSocket Status Indicator Pill */}
+          <div className="ml-2 flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono border bg-zinc-900/90 shadow-sm">
+            {wsStatus === "CONNECTED" && (
+              <>
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span className="text-emerald-400 font-semibold">WS Connected</span>
+              </>
+            )}
+            {wsStatus === "CONNECTING" && (
+              <>
+                <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
+                <span className="text-amber-400">WS Connecting...</span>
+              </>
+            )}
+            {wsStatus === "RECONNECTING" && (
+              <>
+                <RefreshCw className="w-3 h-3 animate-spin text-orange-400" />
+                <span className="text-orange-400 font-semibold">
+                  Reconnecting (#{reconnectAttempt})
+                </span>
+              </>
+            )}
+            {(wsStatus === "DISCONNECTED" || wsStatus === "ERROR") && (
+              <>
+                <span className="h-2 w-2 rounded-full bg-red-500"></span>
+                <span className="text-red-400 font-semibold">WS Disconnected</span>
+                <button
+                  onClick={() => wsConnect()}
+                  className="ml-1 text-[10px] text-purple-400 underline hover:text-purple-300"
+                >
+                  Reconnect
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {room && (
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowLogPanel((prev) => !prev)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
+                showLogPanel
+                  ? "bg-purple-600/20 border-purple-500/40 text-purple-300"
+                  : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              <Terminal className="w-3.5 h-3.5" />
+              <span>Signaling Logs ({signalingLogs.length})</span>
+            </button>
+
             <button
               onClick={handleCopyInvite}
               className="flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all"
@@ -159,8 +333,8 @@ function RoomDetailContent() {
         )}
       </header>
 
-      {/* Main Studio View */}
-      <main className="max-w-6xl w-full mx-auto p-6 md:p-8 flex-1 flex flex-col gap-8 z-10">
+      {/* Main Layout Area */}
+      <main className="max-w-7xl w-full mx-auto p-6 md:p-8 flex-1 flex flex-col gap-8 z-0">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-24 gap-3 text-zinc-500 bg-zinc-900/30 border border-zinc-800/60 rounded-2xl">
             <Loader2 className="w-8 h-8 animate-spin text-purple-400" />
@@ -183,126 +357,250 @@ function RoomDetailContent() {
             </Link>
           </div>
         ) : (
-          <div className="space-y-8">
-            {/* Room Title Header Banner */}
-            <div className="bg-gradient-to-r from-purple-900/40 via-zinc-900 to-zinc-950 border border-purple-500/30 p-6 md:p-8 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full">
-                    {room.status}
-                  </span>
-                  <span className="text-xs text-zinc-500 font-mono">Room ID: #{room.id}</span>
-                </div>
-                <h1 className="text-3xl font-extrabold text-white">{room.name}</h1>
-                <p className="text-xs text-zinc-400 flex items-center gap-1.5">
-                  <span>Host:</span>
-                  <span className="text-white font-medium">{room.ownerName}</span>
-                  {isOwner && (
-                    <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] uppercase font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1 ml-1">
-                      <Crown className="w-3 h-3" /> Owner
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            {/* Left Main Section (Room info & Participants) */}
+            <div className={`space-y-8 ${showLogPanel ? "lg:col-span-7" : "lg:col-span-12"}`}>
+              {/* Room Banner */}
+              <div className="bg-gradient-to-r from-purple-900/40 via-zinc-900 to-zinc-950 border border-purple-500/30 p-6 md:p-8 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-xl">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full">
+                      {room.status}
                     </span>
-                  )}
-                </p>
+                    <span className="text-xs text-zinc-500 font-mono">Room ID: #{room.id}</span>
+                  </div>
+                  <h1 className="text-3xl font-extrabold text-white">{room.name}</h1>
+                  <p className="text-xs text-zinc-400 flex items-center gap-1.5">
+                    <span>Host:</span>
+                    <span className="text-white font-medium">{room.ownerName}</span>
+                    {isOwner && (
+                      <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] uppercase font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1 ml-1">
+                        <Crown className="w-3 h-3" /> Owner
+                      </span>
+                    )}
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-2 bg-zinc-900/80 border border-zinc-800 p-3.5 rounded-xl text-xs">
+                  <div className="flex items-center gap-2 text-purple-300 font-medium">
+                    <Video className="w-4 h-4 text-purple-400" />
+                    <span>1080p Local Track</span>
+                  </div>
+                  <div className="h-px w-full bg-zinc-800" />
+                  <div className="flex items-center gap-2 text-indigo-300 font-medium">
+                    <Mic className="w-4 h-4 text-indigo-400" />
+                    <span>Audio 48kHz WAV</span>
+                  </div>
+                </div>
               </div>
 
-              {/* Action summary */}
-              <div className="flex items-center gap-3 bg-zinc-900/80 border border-zinc-800 p-3.5 rounded-xl text-xs">
-                <div className="flex items-center gap-2 text-purple-300">
-                  <Video className="w-4 h-4" />
-                  <span>1080p Local Track ready</span>
+              {/* Participants Section */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-white font-bold text-lg">
+                    <Users className="w-5 h-5 text-purple-400" />
+                    <h2>Active Participants ({displayParticipants.length})</h2>
+                  </div>
+                  <span className="text-xs text-zinc-500 font-mono">
+                    Live STOMP state
+                  </span>
                 </div>
-                <div className="h-4 w-px bg-zinc-800" />
-                <div className="flex items-center gap-2 text-indigo-300">
-                  <Mic className="w-4 h-4" />
-                  <span>Audio 48kHz WAV</span>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {displayParticipants.map((p) => {
+                    const isCurrent = currentUserId === String(p.userId) || user?.email === p.userEmail;
+                    const isHost = p.role === "HOST";
+
+                    return (
+                      <div
+                        key={`${p.id}-${p.userId}`}
+                        className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-4 flex items-center justify-between gap-3 shadow-md hover:border-zinc-700 transition-all"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm border ${
+                            isHost 
+                              ? "bg-amber-500/10 text-amber-400 border-amber-500/30" 
+                              : "bg-purple-600/10 text-purple-400 border-purple-500/20"
+                          }`}>
+                            {p.userFullName ? p.userFullName.charAt(0).toUpperCase() : "U"}
+                          </div>
+
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-white text-sm">{p.userFullName}</span>
+                              {isCurrent && (
+                                <span className="text-[9px] bg-purple-950 text-purple-300 border border-purple-800 px-1.5 py-0.2 rounded font-mono">
+                                  You
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-zinc-500 font-mono truncate max-w-[140px]">{p.userEmail}</p>
+                          </div>
+                        </div>
+
+                        <span className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-full border ${
+                          isHost
+                            ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                            : "bg-zinc-800 text-zinc-300 border-zinc-700"
+                        }`}>
+                          {p.role}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
 
-            {/* Participants Grid */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-white font-bold text-lg">
-                  <Users className="w-5 h-5 text-purple-400" />
-                  <h2>Room Participants ({room.participants?.length || 0})</h2>
+            {/* Right Section: Real-time Signaling Log & WebRTC Controls Panel */}
+            {showLogPanel && (
+              <div className="lg:col-span-5 flex flex-col gap-4 bg-zinc-900/80 border border-zinc-800/90 rounded-2xl p-5 shadow-2xl backdrop-blur-md">
+                {/* Panel Header */}
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-purple-400 animate-pulse" />
+                    <h3 className="font-bold text-white text-sm">Signaling & WebRTC Event Log</h3>
+                  </div>
+                  <button
+                    onClick={clearLogs}
+                    className="p-1.5 rounded-lg bg-zinc-800/60 hover:bg-zinc-800 text-zinc-400 hover:text-white transition-all text-xs flex items-center gap-1"
+                    title="Clear Log"
+                  >
+                    <Trash className="w-3.5 h-3.5" />
+                    <span>Clear</span>
+                  </button>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {room.participants?.map((p) => {
-                  const isCurrent = user?.email === p.userEmail;
-                  const isHost = p.role === "HOST";
+                {/* Test Action Controls */}
+                <div className="bg-black/50 border border-zinc-800 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between text-xs text-zinc-400 font-medium">
+                    <span className="flex items-center gap-1 text-purple-300">
+                      <Zap className="w-3.5 h-3.5" /> Test WebRTC Relay Actions
+                    </span>
+                    <span className="font-mono text-[10px] text-zinc-500">Target ID: #{targetUserForTest}</span>
+                  </div>
 
-                  return (
-                    <div
-                      key={p.id}
-                      className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-4 flex items-center justify-between gap-3"
+                  <div className="grid grid-cols-2 gap-2 text-xs font-medium">
+                    <button
+                      onClick={handleSendTestOffer}
+                      disabled={wsStatus !== "CONNECTED"}
+                      className="bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 py-1.5 px-2.5 rounded-lg transition-all disabled:opacity-50 text-[11px] font-mono"
                     >
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm border ${
-                          isHost 
-                            ? "bg-amber-500/10 text-amber-400 border-amber-500/30" 
-                            : "bg-purple-600/10 text-purple-400 border-purple-500/20"
-                        }`}>
-                          {p.userFullName ? p.userFullName.charAt(0).toUpperCase() : "U"}
-                        </div>
+                      Send SDP Offer
+                    </button>
+                    <button
+                      onClick={handleSendTestAnswer}
+                      disabled={wsStatus !== "CONNECTED"}
+                      className="bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 py-1.5 px-2.5 rounded-lg transition-all disabled:opacity-50 text-[11px] font-mono"
+                    >
+                      Send SDP Answer
+                    </button>
+                    <button
+                      onClick={handleSendTestIce}
+                      disabled={wsStatus !== "CONNECTED"}
+                      className="bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 py-1.5 px-2.5 rounded-lg transition-all disabled:opacity-50 text-[11px] font-mono"
+                    >
+                      Send ICE Candidate
+                    </button>
+                    <button
+                      onClick={simulateNetworkDrop}
+                      className="bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-300 py-1.5 px-2.5 rounded-lg transition-all text-[11px] font-mono"
+                      title="Simulate connection drop to test exponential backoff reconnect"
+                    >
+                      Drop Connection
+                    </button>
+                  </div>
+                </div>
 
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-white text-sm">{p.userFullName}</span>
-                            {isCurrent && (
-                              <span className="text-[9px] bg-purple-950 text-purple-300 border border-purple-800 px-1.5 py-0.2 rounded font-mono">
-                                You
+                {/* Filter Tabs */}
+                <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl text-[11px] font-semibold">
+                  {(["ALL", "SIGNALING", "WEBRTC", "ERROR"] as const).map((filter) => (
+                    <button
+                      key={filter}
+                      onClick={() => setLogFilter(filter)}
+                      className={`flex-1 py-1 rounded-lg transition-all ${
+                        logFilter === filter
+                          ? "bg-purple-600 text-white shadow-sm"
+                          : "text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      {filter}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Scrollable Event Stream */}
+                <div className="flex-1 min-h-[340px] max-h-[460px] overflow-y-auto space-y-2 pr-1 font-mono text-xs scrollbar-thin scrollbar-thumb-zinc-700">
+                  {filteredLogs.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-48 text-zinc-500 text-xs gap-2">
+                      <Terminal className="w-6 h-6 opacity-40" />
+                      <span>No signaling events captured yet.</span>
+                    </div>
+                  ) : (
+                    filteredLogs.map((log) => {
+                      const isExpanded = expandedLogId === log.id;
+
+                      let badgeStyle = "bg-zinc-800 text-zinc-300 border-zinc-700";
+                      if (log.type === "JOIN" || log.type === "ROOM_STATE") badgeStyle = "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
+                      if (log.type === "LEAVE") badgeStyle = "bg-amber-500/10 text-amber-400 border-amber-500/30";
+                      if (log.type === "OFFER" || log.type === "ANSWER" || log.type === "ICE_CANDIDATE") badgeStyle = "bg-indigo-500/10 text-indigo-400 border-indigo-500/30";
+                      if (log.type === "ERROR") badgeStyle = "bg-red-500/10 text-red-400 border-red-500/30";
+                      if (log.type === "RECONNECT") badgeStyle = "bg-orange-500/10 text-orange-400 border-orange-500/30";
+
+                      return (
+                        <div
+                          key={log.id}
+                          className="bg-black/60 border border-zinc-800/80 rounded-xl p-2.5 space-y-1.5 transition-all hover:border-zinc-700"
+                        >
+                          <div
+                            onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+                            className="flex items-center justify-between cursor-pointer select-none"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-zinc-500">{log.timestamp}</span>
+                              <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${badgeStyle}`}>
+                                {log.type}
                               </span>
+                              <span className={`text-[9px] uppercase font-bold ${
+                                log.direction === "in" ? "text-emerald-400" : log.direction === "out" ? "text-purple-400" : "text-amber-400"
+                              }`}>
+                                [{log.direction}]
+                              </span>
+                            </div>
+
+                            {log.details && (
+                              <button className="text-zinc-500 hover:text-zinc-300">
+                                {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                              </button>
                             )}
                           </div>
-                          <p className="text-xs text-zinc-500 font-mono">{p.userEmail}</p>
-                        </div>
-                      </div>
 
-                      <span className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-full border ${
-                        isHost
-                          ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                          : "bg-zinc-800 text-zinc-300 border-zinc-700"
-                      }`}>
-                        {p.role}
-                      </span>
-                    </div>
-                  );
-                })}
+                          <p className="text-zinc-300 text-[11px] leading-snug">{log.summary}</p>
+
+                          {isExpanded && log.details && (
+                            <pre className="bg-zinc-950 p-2 rounded-lg text-[10px] text-zinc-400 overflow-x-auto border border-zinc-900 mt-1">
+                              {JSON.stringify(log.details, null, 2)}
+                            </pre>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
       </main>
 
-      {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
-            <h4 className="font-bold text-white text-base">Delete Studio Room?</h4>
-            <p className="text-xs text-zinc-400">
-              Deleting <span className="text-white font-semibold">{room?.name}</span> will end the session for all participants. This action is permanent.
-            </p>
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                className="px-4 py-2 text-xs font-medium text-zinc-300 hover:text-white rounded-lg border border-zinc-800"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={deleting}
-                className="px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-500 rounded-lg shadow-md shadow-red-600/30 transition-all flex items-center gap-1.5"
-              >
-                {deleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>Confirm Delete</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Reusable Delete Room Confirmation Modal */}
+      <DeleteRoomModal
+        isOpen={showDeleteConfirm}
+        roomName={room?.name}
+        isDeleting={deleting}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={handleDelete}
+      />
 
       {/* Footer */}
       <footer className="w-full border-t border-zinc-800/80 py-4 text-center text-xs text-zinc-500">

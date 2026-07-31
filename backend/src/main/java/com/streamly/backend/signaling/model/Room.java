@@ -5,7 +5,6 @@ import lombok.Getter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -14,6 +13,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * Thread-safe domain model representing a WebRTC signaling room.
  */
 public class Room {
+
+    public enum JoinStatus {
+        JOINED,
+        REJOINED,
+        DUPLICATE_REJECTED
+    }
 
     @Getter
     private final String roomId;
@@ -25,16 +30,37 @@ public class Room {
     }
 
     /**
-     * Adds a participant to the room if not already present.
+     * Adds a new participant or handles reconnection for an existing participant.
      *
-     * @param participant The participant to add
-     * @return true if added, false if participant with same userId already exists
+     * @param userId    The user ID
+     * @param sessionId The WebSocket session ID
+     * @return JoinStatus result of join attempt
      */
-    public boolean addParticipant(Participant participant) {
-        if (participant == null || participant.getUserId() == null) {
-            return false;
+    public JoinStatus addOrUpdateParticipant(String userId, String sessionId) {
+        if (userId == null || userId.isBlank()) {
+            return JoinStatus.DUPLICATE_REJECTED;
         }
-        return participants.putIfAbsent(participant.getUserId(), participant) == null;
+
+        Participant existing = participants.get(userId);
+        if (existing == null) {
+            Participant newParticipant = new Participant(userId, sessionId);
+            Participant prev = participants.putIfAbsent(userId, newParticipant);
+            return prev == null ? JoinStatus.JOINED : JoinStatus.DUPLICATE_REJECTED;
+        }
+
+        // If user was marked DISCONNECTED (or is reconnecting with new session ID)
+        if (existing.isDisconnected()) {
+            existing.markActive(sessionId);
+            return JoinStatus.REJOINED;
+        }
+
+        // If already active with the exact same session
+        if (sessionId != null && sessionId.equals(existing.getSessionId())) {
+            return JoinStatus.REJOINED;
+        }
+
+        // Active user with different session -> duplicate join attempt
+        return JoinStatus.DUPLICATE_REJECTED;
     }
 
     /**
@@ -83,7 +109,7 @@ public class Room {
     }
 
     /**
-     * Checks if the room has no remaining participants.
+     * Checks if the room has no remaining active or pending participants.
      *
      * @return true if empty
      */

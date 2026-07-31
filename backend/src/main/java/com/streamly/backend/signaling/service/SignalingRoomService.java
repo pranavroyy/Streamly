@@ -4,7 +4,9 @@ import com.streamly.backend.signaling.model.Participant;
 import com.streamly.backend.signaling.model.Room;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Collection;
@@ -12,16 +14,29 @@ import java.util.Collections;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
- * In-memory thread-safe service responsible for WebRTC room lifecycle and participant management.
+ * In-memory thread-safe service responsible for WebRTC room lifecycle, participant management,
+ * and reconnect grace period handling.
  */
 @Slf4j
 @Service
 public class SignalingRoomService {
 
+    @Getter
+    @Setter
+    @Value("${websocket.reconnect.grace-period-ms:5000}")
+    private long gracePeriodMs = 5000;
+
     private final ConcurrentMap<String, Room> rooms = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, SessionMapping> sessionRegistry = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, ScheduledFuture<?>> gracePeriodTasks = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
     /**
      * Internal container for session mapping details.
@@ -59,38 +74,45 @@ public class SignalingRoomService {
     }
 
     /**
-     * Joins a user to a room. Prevents duplicate joins for the same userId.
+     * Joins a user to a room. Supports reconnection within the grace period.
      *
      * @param roomId    The room ID
      * @param userId    The participant's user ID
      * @param sessionId The WebSocket session ID
-     * @return true if successfully joined, false if duplicate join
+     * @return Room.JoinStatus (JOINED, REJOINED, or DUPLICATE_REJECTED)
      */
-    public boolean joinRoom(String roomId, String userId, String sessionId) {
+    public Room.JoinStatus joinRoom(String roomId, String userId, String sessionId) {
         if (roomId == null || roomId.isBlank() || userId == null || userId.isBlank()) {
             log.warn("Invalid join request. roomId: {}, userId: {}", roomId, userId);
-            return false;
+            return Room.JoinStatus.DUPLICATE_REJECTED;
         }
 
-        Room room = createRoom(roomId);
-        Participant participant = new Participant(userId, sessionId);
+        // Cancel any pending grace period disconnect task for this user
+        cancelGracePeriodTask(userId);
 
-        boolean added = room.addParticipant(participant);
-        if (!added) {
+        Room room = createRoom(roomId);
+        Room.JoinStatus status = room.addOrUpdateParticipant(userId, sessionId);
+
+        if (status == Room.JoinStatus.DUPLICATE_REJECTED) {
             log.warn("Duplicate join attempt rejected for user {} in room {}", userId, roomId);
-            return false;
+            return Room.JoinStatus.DUPLICATE_REJECTED;
         }
 
         if (sessionId != null) {
             sessionRegistry.put(sessionId, new SessionMapping(userId, roomId));
         }
 
-        log.info("User {} joined room {} (sessionId: {})", userId, roomId, sessionId);
-        return true;
+        if (status == Room.JoinStatus.REJOINED) {
+            log.info("User {} REJOINED room {} (sessionId: {}) within grace period", userId, roomId, sessionId);
+        } else {
+            log.info("User {} JOINED room {} (sessionId: {})", userId, roomId, sessionId);
+        }
+
+        return status;
     }
 
     /**
-     * Removes a participant from a room by user ID.
+     * Explicitly removes a participant from a room by user ID (bypasses grace period).
      *
      * @param roomId The room ID
      * @param userId The user ID to remove
@@ -100,6 +122,9 @@ public class SignalingRoomService {
         if (roomId == null || userId == null) {
             return Optional.empty();
         }
+
+        // Cancel pending grace period disconnect task if any
+        cancelGracePeriodTask(userId);
 
         Room room = rooms.get(roomId);
         if (room == null) {
@@ -126,12 +151,14 @@ public class SignalingRoomService {
     }
 
     /**
-     * Removes a participant by WebSocket session ID (for disconnect handling).
+     * Handles unexpected WebSocket session disconnects with grace period support.
      *
-     * @param sessionId WebSocket session ID
-     * @return ParticipantRemovalResult optional
+     * @param sessionId              WebSocket session ID
+     * @param onExpiredRemovalCallback Consumer callback invoked if grace period expires without reconnect
+     * @return Optional containing the session mapping if found
      */
-    public Optional<ParticipantRemovalResult> removeParticipantBySessionId(String sessionId) {
+    public Optional<SessionMapping> handleSessionDisconnect(String sessionId,
+                                                             Consumer<ParticipantRemovalResult> onExpiredRemovalCallback) {
         if (sessionId == null) {
             return Optional.empty();
         }
@@ -142,17 +169,82 @@ public class SignalingRoomService {
             return Optional.empty();
         }
 
-        log.info("Handling disconnect for session {} (User: {}, Room: {})",
-                sessionId, mapping.getUserId(), mapping.getRoomId());
+        String roomId = mapping.getRoomId();
+        String userId = mapping.getUserId();
+
+        Room room = rooms.get(roomId);
+        if (room == null) {
+            return Optional.empty();
+        }
+
+        Optional<Participant> participantOpt = room.getParticipant(userId);
+        if (participantOpt.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Participant participant = participantOpt.get();
+        participant.markDisconnected();
+
+        log.info("Session disconnected for user {} in room {}. Starting {} ms grace period timer.",
+                userId, roomId, gracePeriodMs);
+
+        if (gracePeriodMs <= 0) {
+            // Immediate cleanup if grace period is disabled or 0
+            Optional<ParticipantRemovalResult> removalOpt = leaveRoom(roomId, userId);
+            removalOpt.ifPresent(onExpiredRemovalCallback);
+        } else {
+            // Schedule grace period expiration task
+            ScheduledFuture<?> task = scheduler.schedule(() -> {
+                gracePeriodTasks.remove(userId);
+                if (participant.isDisconnected()) {
+                    log.info("Grace period expired for user {} in room {}. Executing removal.", userId, roomId);
+                    Optional<ParticipantRemovalResult> removalOpt = leaveRoom(roomId, userId);
+                    if (removalOpt.isPresent() && onExpiredRemovalCallback != null) {
+                        onExpiredRemovalCallback.accept(removalOpt.get());
+                    }
+                }
+            }, gracePeriodMs, TimeUnit.MILLISECONDS);
+
+            gracePeriodTasks.put(userId, task);
+        }
+
+        return Optional.of(mapping);
+    }
+
+    /**
+     * Removes a participant immediately by session ID.
+     */
+    public Optional<ParticipantRemovalResult> removeParticipantBySessionId(String sessionId) {
+        if (sessionId == null) {
+            return Optional.empty();
+        }
+
+        SessionMapping mapping = sessionRegistry.remove(sessionId);
+        if (mapping == null) {
+            return Optional.empty();
+        }
 
         return leaveRoom(mapping.getRoomId(), mapping.getUserId());
     }
 
     /**
-     * Retrieves all active participants in a room.
+     * Cancels any pending grace period task for a given user.
+     */
+    private void cancelGracePeriodTask(String userId) {
+        if (userId != null) {
+            ScheduledFuture<?> task = gracePeriodTasks.remove(userId);
+            if (task != null && !task.isDone()) {
+                task.cancel(false);
+                log.debug("Cancelled pending grace period timer for user {}", userId);
+            }
+        }
+    }
+
+    /**
+     * Retrieves all active/present participants in a room.
      *
      * @param roomId Room ID
-     * @return Collection of participants or empty collection if room does not exist
+     * @return Collection of participants
      */
     public Collection<Participant> getParticipants(String roomId) {
         Room room = rooms.get(roomId);

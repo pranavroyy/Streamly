@@ -1,0 +1,14 @@
+{
+  "name": "streamly-signaling-test",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Combined integration test suite for Streamly's STOMP/WebRTC signaling backend (join/notify, room isolation, disconnect/leave, reconnect-within-grace-period, and full offer/answer/ice relay)",
+  "main": "test-signaling.js",
+  "scripts": {
+    "test": "node test-signaling.js"
+  },
+  "dependencies": {
+    "@stomp/stompjs": "^7.0.0",
+    "sockjs-client": "^1.6.1"
+  }
+}

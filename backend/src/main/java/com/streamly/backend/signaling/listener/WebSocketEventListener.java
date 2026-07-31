@@ -11,10 +11,8 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
-import java.util.Optional;
-
 /**
- * Event listener for handling unexpected WebSocket session disconnects.
+ * Event listener for handling unexpected WebSocket session disconnects with grace period support.
  */
 @Slf4j
 @Component
@@ -26,6 +24,7 @@ public class WebSocketEventListener {
 
     /**
      * Handles Spring WebSocket SessionDisconnectEvent.
+     * Starts reconnect grace period timer before broadcasting LEAVE event.
      *
      * @param event The SessionDisconnectEvent instance
      */
@@ -34,28 +33,24 @@ public class WebSocketEventListener {
         String sessionId = event.getSessionId();
         log.info("WebSocket session disconnect detected: {}", sessionId);
 
-        Optional<SignalingRoomService.ParticipantRemovalResult> resultOpt =
-                roomService.removeParticipantBySessionId(sessionId);
+        roomService.handleSessionDisconnect(sessionId, removalResult -> {
+            String roomId = removalResult.getRoomId();
+            String userId = removalResult.getUserId();
 
-        if (resultOpt.isPresent()) {
-            SignalingRoomService.ParticipantRemovalResult result = resultOpt.get();
-            String roomId = result.getRoomId();
-            String userId = result.getUserId();
-
-            log.info("Participant {} disconnected from room {}. Broadcasting LEAVE event.", userId, roomId);
+            log.info("Grace period expired for participant {} in room {}. Broadcasting LEAVE event.", userId, roomId);
 
             SignalingMessage<LeaveMessage> leaveBroadcast = SignalingMessage.<LeaveMessage>builder()
                     .type(MessageType.LEAVE)
                     .roomId(roomId)
                     .senderId(userId)
-                    .payload(new LeaveMessage(userId, "Unexpected WebSocket disconnect"))
+                    .payload(new LeaveMessage(userId, "Session disconnect grace period expired"))
                     .build();
 
             messagingTemplate.convertAndSend("/topic/rooms/" + roomId, leaveBroadcast);
 
-            if (result.isRoomDeleted()) {
-                log.info("Room {} automatically cleaned up after last participant disconnected.", roomId);
+            if (removalResult.isRoomDeleted()) {
+                log.info("Room {} automatically cleaned up after last participant left.", roomId);
             }
-        }
+        });
     }
 }

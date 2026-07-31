@@ -9,6 +9,7 @@ import com.streamly.backend.signaling.dto.ParticipantDto;
 import com.streamly.backend.signaling.dto.SignalingMessage;
 import com.streamly.backend.signaling.enums.MessageType;
 import com.streamly.backend.signaling.model.Participant;
+import com.streamly.backend.signaling.model.Room;
 import com.streamly.backend.signaling.service.SignalingRoomService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -54,8 +55,8 @@ public class SignalingController {
             return;
         }
 
-        boolean joined = roomService.joinRoom(roomId, senderId, sessionId);
-        if (!joined) {
+        Room.JoinStatus joinStatus = roomService.joinRoom(roomId, senderId, sessionId);
+        if (joinStatus == Room.JoinStatus.DUPLICATE_REJECTED) {
             log.warn("Join failed or duplicate join for user {} in room {}", senderId, roomId);
             sendErrorToUser(senderId, sessionId, "Duplicate join or unable to join room " + roomId);
             return;

@@ -22,6 +22,9 @@ public class Room {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(nullable = false, unique = true, length = 16)
+    private String code;
+
     @Column(nullable = false)
     private String name;
 

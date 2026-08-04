@@ -19,7 +19,9 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -27,15 +29,56 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class RoomService {
 
+    private static final String CODE_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789";
+    private static final SecureRandom RANDOM = new SecureRandom();
+
     private final RoomRepository roomRepository;
     private final ParticipantRepository participantRepository;
+
+    private String generateUniqueRoomCode() {
+        String code;
+        int attempts = 0;
+        do {
+            StringBuilder sb = new StringBuilder("rm-");
+            for (int i = 0; i < 6; i++) {
+                sb.append(CODE_CHARS.charAt(RANDOM.nextInt(CODE_CHARS.length())));
+            }
+            code = sb.toString();
+            attempts++;
+            if (attempts > 20) {
+                code = "rm-" + System.currentTimeMillis();
+                break;
+            }
+        } while (roomRepository.existsByCode(code));
+        return code;
+    }
+
+    private Room findRoomByIdentifier(String identifier) {
+        if (identifier == null || identifier.isBlank()) {
+            throw new BadRequestException("Room identifier cannot be empty");
+        }
+
+        // Try numeric ID first if identifier is digits
+        try {
+            Long numericId = Long.parseLong(identifier);
+            return roomRepository.findById(numericId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Room not found with ID: " + numericId));
+        } catch (NumberFormatException e) {
+            // Otherwise try string room code
+            return roomRepository.findByCode(identifier)
+                    .orElseThrow(() -> new ResourceNotFoundException("Room not found with code: " + identifier));
+        }
+    }
 
     @Transactional
     public RoomResponse createRoom(CreateRoomRequest request, User owner) {
         log.info("Creating room '{}' for user ID: {}", request.getName(), owner.getId());
 
+        String code = generateUniqueRoomCode();
+
         Room room = Room.builder()
                 .name(request.getName().trim())
+                .code(code)
                 .owner(owner)
                 .status(RoomStatus.ACTIVE)
                 .build();
@@ -49,7 +92,7 @@ public class RoomService {
         room.getParticipants().add(hostParticipant);
         Room savedRoom = roomRepository.save(room);
 
-        log.info("Room created successfully with ID: {}", savedRoom.getId());
+        log.info("Room created successfully with ID: {} and Code: {}", savedRoom.getId(), savedRoom.getCode());
         return RoomResponse.fromEntity(savedRoom);
     }
 
@@ -85,6 +128,18 @@ public class RoomService {
     }
 
     @Transactional
+    public ParticipantResponse joinRoom(String identifier, User user) {
+        try {
+            Long numericId = Long.parseLong(identifier);
+            return joinRoom(numericId, user);
+        } catch (NumberFormatException e) {
+            Room room = roomRepository.findByCode(identifier)
+                    .orElseThrow(() -> new ResourceNotFoundException("Room not found with code: " + identifier));
+            return joinRoom(room.getId(), user);
+        }
+    }
+
+    @Transactional
     public void leaveRoom(Long roomId, User user) {
         log.info("User ID: {} attempting to leave room ID: {}", user.getId(), roomId);
 
@@ -96,6 +151,18 @@ public class RoomService {
 
         participantRepository.delete(participant);
         log.info("User ID: {} left room ID: {}", user.getId(), roomId);
+    }
+
+    @Transactional
+    public void leaveRoom(String identifier, User user) {
+        try {
+            Long numericId = Long.parseLong(identifier);
+            leaveRoom(numericId, user);
+        } catch (NumberFormatException e) {
+            Room room = roomRepository.findByCode(identifier)
+                    .orElseThrow(() -> new ResourceNotFoundException("Room not found with code: " + identifier));
+            leaveRoom(room.getId(), user);
+        }
     }
 
     @Transactional
@@ -115,6 +182,18 @@ public class RoomService {
         log.info("Room ID: {} deleted (status updated to DELETED) by owner ID: {}", roomId, user.getId());
     }
 
+    @Transactional
+    public void deleteRoom(String identifier, User user) {
+        try {
+            Long numericId = Long.parseLong(identifier);
+            deleteRoom(numericId, user);
+        } catch (NumberFormatException e) {
+            Room room = roomRepository.findByCode(identifier)
+                    .orElseThrow(() -> new ResourceNotFoundException("Room not found with code: " + identifier));
+            deleteRoom(room.getId(), user);
+        }
+    }
+
     @Transactional(readOnly = true)
     public List<RoomResponse> listMyRooms(User user) {
         log.info("Fetching rooms for user ID: {}", user.getId());
@@ -131,5 +210,18 @@ public class RoomService {
                 .orElseThrow(() -> new ResourceNotFoundException("Room not found with ID: " + roomId));
 
         return RoomResponse.fromEntity(room);
+    }
+
+    @Transactional(readOnly = true)
+    public RoomResponse getRoomByIdentifier(String identifier, User user) {
+        log.info("Fetching room details for room: {} by user ID: {}", identifier, user.getId());
+        try {
+            Long numericId = Long.parseLong(identifier);
+            return getRoomById(numericId, user);
+        } catch (NumberFormatException e) {
+            Room room = roomRepository.findByCodeAndStatusNot(identifier, RoomStatus.DELETED)
+                    .orElseThrow(() -> new ResourceNotFoundException("Room not found with code: " + identifier));
+            return RoomResponse.fromEntity(room);
+        }
     }
 }

@@ -118,7 +118,7 @@ class RoomControllerTest {
     @Test
     @DisplayName("GET /v1/rooms/{id} - should return room details")
     void getRoom_Success() throws Exception {
-        when(roomService.getRoomById(eq(100L), any())).thenReturn(sampleRoomResponse);
+        when(roomService.getRoomByIdentifier(eq("100"), any())).thenReturn(sampleRoomResponse);
 
         mockMvc.perform(get("/v1/rooms/100"))
                 .andExpect(status().isOk())
@@ -136,7 +136,7 @@ class RoomControllerTest {
                 .joinedAt(LocalDateTime.now())
                 .build();
 
-        when(roomService.joinRoom(eq(100L), any())).thenReturn(participantResponse);
+        when(roomService.joinRoom(eq("100"), any())).thenReturn(participantResponse);
 
         mockMvc.perform(post("/v1/rooms/100/join"))
                 .andExpect(status().isOk())
@@ -147,7 +147,7 @@ class RoomControllerTest {
     @Test
     @DisplayName("POST /v1/rooms/{id}/leave - should leave room and return 204 No Content")
     void leaveRoom_Success() throws Exception {
-        doNothing().when(roomService).leaveRoom(eq(100L), any());
+        doNothing().when(roomService).leaveRoom(eq("100"), any());
 
         mockMvc.perform(post("/v1/rooms/100/leave"))
                 .andExpect(status().isNoContent());
@@ -156,7 +156,7 @@ class RoomControllerTest {
     @Test
     @DisplayName("DELETE /v1/rooms/{id} - owner deletion returns 204 No Content")
     void deleteRoom_Owner_Success() throws Exception {
-        doNothing().when(roomService).deleteRoom(eq(100L), any());
+        doNothing().when(roomService).deleteRoom(eq("100"), any());
 
         mockMvc.perform(delete("/v1/rooms/100"))
                 .andExpect(status().isNoContent());
@@ -166,7 +166,7 @@ class RoomControllerTest {
     @DisplayName("DELETE /v1/rooms/{id} - non-owner deletion returns 403 Forbidden")
     void deleteRoom_NonOwner_Forbidden() throws Exception {
         doThrow(new AccessDeniedException("Only the room owner can delete this room"))
-                .when(roomService).deleteRoom(eq(100L), any());
+                .when(roomService).deleteRoom(eq("100"), any());
 
         mockMvc.perform(delete("/v1/rooms/100"))
                 .andExpect(status().isForbidden())

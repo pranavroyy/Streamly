@@ -62,6 +62,7 @@ class RoomServiceTest {
 
         room = Room.builder()
                 .id(100L)
+                .code("rm-test01")
                 .name("Podcast Recording Studio")
                 .owner(owner)
                 .status(RoomStatus.ACTIVE)

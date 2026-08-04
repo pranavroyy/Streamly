@@ -19,6 +19,7 @@ import java.util.stream.Collectors;
 public class RoomResponse {
 
     private Long id;
+    private String code;
     private String name;
     private Long ownerId;
     private String ownerName;
@@ -34,6 +35,7 @@ public class RoomResponse {
 
         return RoomResponse.builder()
                 .id(room.getId())
+                .code(room.getCode())
                 .name(room.getName())
                 .ownerId(room.getOwner() != null ? room.getOwner().getId() : null)
                 .ownerName(room.getOwner() != null ? room.getOwner().getFullName() : null)

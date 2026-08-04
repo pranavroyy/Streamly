@@ -37,15 +37,15 @@ public class RoomController {
 
     @GetMapping("/{id}")
     public ResponseEntity<RoomResponse> getRoom(
-            @PathVariable Long id,
+            @PathVariable("id") String id,
             @AuthenticationPrincipal User user) {
-        RoomResponse response = roomService.getRoomById(id, user);
+        RoomResponse response = roomService.getRoomByIdentifier(id, user);
         return ResponseEntity.ok(response);
     }
 
     @PostMapping("/{id}/join")
     public ResponseEntity<ParticipantResponse> joinRoom(
-            @PathVariable Long id,
+            @PathVariable("id") String id,
             @AuthenticationPrincipal User user) {
         ParticipantResponse response = roomService.joinRoom(id, user);
         return ResponseEntity.ok(response);
@@ -53,7 +53,7 @@ public class RoomController {
 
     @PostMapping("/{id}/leave")
     public ResponseEntity<Void> leaveRoom(
-            @PathVariable Long id,
+            @PathVariable("id") String id,
             @AuthenticationPrincipal User user) {
         roomService.leaveRoom(id, user);
         return ResponseEntity.noContent().build();
@@ -61,7 +61,7 @@ public class RoomController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteRoom(
-            @PathVariable Long id,
+            @PathVariable("id") String id,
             @AuthenticationPrincipal User user) {
         roomService.deleteRoom(id, user);
         return ResponseEntity.noContent().build();

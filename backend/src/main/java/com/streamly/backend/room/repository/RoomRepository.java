@@ -15,9 +15,16 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
 
     List<Room> findAllByOwnerIdAndStatusNot(Long ownerId, RoomStatus status);
 
-    @Query("SELECT DISTINCT r FROM Room r LEFT JOIN FETCH r.participants p WHERE (r.owner.id = :userId OR p.user.id = :userId) AND r.status <> :excludedStatus ORDER BY r.createdAt DESC")
+    @Query("SELECT DISTINCT r FROM Room r LEFT JOIN FETCH r.owner LEFT JOIN FETCH r.participants p LEFT JOIN FETCH p.user WHERE (r.owner.id = :userId OR p.user.id = :userId) AND r.status <> :excludedStatus ORDER BY r.createdAt DESC")
     List<Room> findUserRoomsExcludingStatus(@Param("userId") Long userId, @Param("excludedStatus") RoomStatus excludedStatus);
 
-    @Query("SELECT r FROM Room r LEFT JOIN FETCH r.participants WHERE r.id = :id AND r.status <> :excludedStatus")
+    boolean existsByCode(String code);
+
+    Optional<Room> findByCode(String code);
+
+    @Query("SELECT DISTINCT r FROM Room r LEFT JOIN FETCH r.owner LEFT JOIN FETCH r.participants p LEFT JOIN FETCH p.user WHERE r.code = :code AND r.status <> :excludedStatus")
+    Optional<Room> findByCodeAndStatusNot(@Param("code") String code, @Param("excludedStatus") RoomStatus excludedStatus);
+
+    @Query("SELECT DISTINCT r FROM Room r LEFT JOIN FETCH r.owner LEFT JOIN FETCH r.participants p LEFT JOIN FETCH p.user WHERE r.id = :id AND r.status <> :excludedStatus")
     Optional<Room> findByIdAndStatusNot(@Param("id") Long id, @Param("excludedStatus") RoomStatus excludedStatus);
 }

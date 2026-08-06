@@ -32,7 +32,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const router = useRouter();
 
-  // Restore user session on initial load
+  // Restore user session on initial load instantly
   useEffect(() => {
     const initAuth = async () => {
       const token = getAccessToken();
@@ -41,18 +41,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (token) {
         setAccessTokenState(token);
         setRefreshTokenState(refToken);
+        
+        // Restore cached user from storage instantly for 0ms initial render
+        const cachedEmail = typeof window !== "undefined" ? localStorage.getItem("userEmail") : null;
+        const cachedFullName = typeof window !== "undefined" ? localStorage.getItem("userFullName") : null;
+        if (cachedEmail) {
+          setUser({ email: cachedEmail, fullName: cachedFullName || "Streamly Creator" });
+        }
+        setIsLoading(false);
+
+        // Revalidate in background asynchronously
         try {
           const res = await api.get<User>("/v1/auth/me");
           setUser(res.data);
         } catch (error) {
-          // If fetching profile fails (e.g. invalid token), clear storage
           clearAuthStorage();
           setUser(null);
           setAccessTokenState(null);
           setRefreshTokenState(null);
         }
+      } else {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     };
 
     initAuth();

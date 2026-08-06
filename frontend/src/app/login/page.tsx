@@ -52,9 +52,9 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="relative min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-black to-zinc-950 flex flex-col justify-center items-center px-4 sm:px-6 lg:px-8">
+    <div className="relative min-h-screen bg-zinc-50 dark:bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] dark:from-zinc-900 dark:via-black dark:to-zinc-950 text-zinc-900 dark:text-zinc-100 flex flex-col justify-center items-center px-4 sm:px-6 lg:px-8 transition-colors">
       {/* Background glowing effects */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-purple-600/10 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[500px] h-[500px] bg-purple-500/5 dark:bg-purple-600/10 rounded-full blur-[140px] pointer-events-none" />
 
       {/* Main Container */}
       <div className="w-full max-w-md space-y-8 z-10">
@@ -62,26 +62,26 @@ export default function LoginPage() {
         {/* Header Branding */}
         <div className="text-center">
           <Link href="/" className="inline-flex items-center gap-2 mb-6 group">
-            <div className="bg-purple-600 p-2.5 rounded-xl text-white shadow-lg shadow-purple-600/30 group-hover:scale-105 transition-transform">
-              <Radio className="w-6 h-6 animate-pulse" />
+            <div className="bg-purple-600 p-2.5 rounded-xl text-white shadow-md transition-transform group-hover:scale-105">
+              <Radio className="w-6 h-6" />
             </div>
-            <span className="text-2xl font-bold tracking-tight text-white">Streamly</span>
+            <span className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">Streamly</span>
           </Link>
-          <h2 className="text-3xl font-extrabold tracking-tight text-zinc-100">
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
             Welcome back
           </h2>
-          <p className="mt-2 text-sm text-zinc-400">
+          <p className="mt-2 text-xs sm:text-sm text-zinc-600 dark:text-zinc-400">
             Sign in to access your podcast studio and recordings
           </p>
         </div>
 
         {/* Login Card */}
-        <div className="bg-zinc-900/70 border border-zinc-800/80 backdrop-blur-xl p-8 rounded-2xl shadow-2xl">
+        <div className="bg-white dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800/80 backdrop-blur-xl p-8 rounded-2xl shadow-sm dark:shadow-2xl transition-colors">
           
           {/* General Server Error Alert */}
           {errors.general && (
-            <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 flex items-start gap-3 text-red-400 text-sm">
-              <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+            <div className="mb-6 p-4 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 flex items-start gap-3 text-red-600 dark:text-red-400 text-xs">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{errors.general}</span>
             </div>
           )}
@@ -90,11 +90,11 @@ export default function LoginPage() {
             
             {/* Email Field */}
             <div>
-              <label htmlFor="email" className="block text-xs font-semibold uppercase tracking-wider text-zinc-300 mb-2">
+              <label htmlFor="email" className="block text-xs font-semibold uppercase tracking-wider text-zinc-700 dark:text-zinc-300 mb-2">
                 Email Address
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
                   <Mail className="w-4 h-4" />
                 </div>
                 <input
@@ -104,14 +104,14 @@ export default function LoginPage() {
                   autoComplete="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className={`w-full pl-10 pr-4 py-3 bg-zinc-950/80 border ${
-                    errors.email ? "border-red-500/80 focus:ring-red-500" : "border-zinc-800 focus:border-purple-500 focus:ring-purple-500/20"
-                  } rounded-xl text-zinc-100 placeholder-zinc-500 text-sm focus:outline-none focus:ring-2 transition-all`}
+                  className={`w-full pl-10 pr-4 py-3 bg-zinc-50 dark:bg-zinc-950 border ${
+                    errors.email ? "border-red-500" : "border-zinc-200 dark:border-zinc-800 focus:border-purple-500"
+                  } rounded-xl text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 text-sm focus:outline-none transition-all`}
                   placeholder="alex@streamly.fm"
                 />
               </div>
               {errors.email && (
-                <p className="mt-1.5 text-xs text-red-400 flex items-center gap-1">
+                <p className="mt-1.5 text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
                   <AlertCircle className="w-3.5 h-3.5" />
                   {errors.email}
                 </p>
@@ -121,12 +121,12 @@ export default function LoginPage() {
             {/* Password Field */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label htmlFor="password" className="block text-xs font-semibold uppercase tracking-wider text-zinc-300">
+                <label htmlFor="password" className="block text-xs font-semibold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
                   Password
                 </label>
               </div>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
                   <Lock className="w-4 h-4" />
                 </div>
                 <input
@@ -136,14 +136,14 @@ export default function LoginPage() {
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className={`w-full pl-10 pr-4 py-3 bg-zinc-950/80 border ${
-                    errors.password ? "border-red-500/80 focus:ring-red-500" : "border-zinc-800 focus:border-purple-500 focus:ring-purple-500/20"
-                  } rounded-xl text-zinc-100 placeholder-zinc-500 text-sm focus:outline-none focus:ring-2 transition-all`}
+                  className={`w-full pl-10 pr-4 py-3 bg-zinc-50 dark:bg-zinc-950 border ${
+                    errors.password ? "border-red-500" : "border-zinc-200 dark:border-zinc-800 focus:border-purple-500"
+                  } rounded-xl text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 text-sm focus:outline-none transition-all`}
                   placeholder="••••••••"
                 />
               </div>
               {errors.password && (
-                <p className="mt-1.5 text-xs text-red-400 flex items-center gap-1">
+                <p className="mt-1.5 text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
                   <AlertCircle className="w-3.5 h-3.5" />
                   {errors.password}
                 </p>
@@ -154,7 +154,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-3.5 px-4 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-xl text-sm shadow-lg shadow-purple-600/20 transition-all flex items-center justify-center gap-2 group"
+              className="w-full py-3 px-4 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-medium rounded-xl text-xs shadow-sm transition-all flex items-center justify-center gap-2 group"
             >
               {isSubmitting ? (
                 <>
@@ -171,12 +171,13 @@ export default function LoginPage() {
           </form>
 
           {/* Registration Link Footer */}
-          <div className="mt-6 pt-6 border-t border-zinc-800/80 text-center">
-            <p className="text-sm text-zinc-400">
+          <div className="mt-6 pt-6 border-t border-zinc-200 dark:border-zinc-800/80 text-center">
+            <p className="text-xs text-zinc-600 dark:text-zinc-400">
               Don't have an account?{" "}
               <Link
                 href="/register"
-                className="font-medium text-purple-400 hover:text-purple-300 underline-offset-4 hover:underline transition-colors"
+                prefetch={true}
+                className="font-medium text-purple-600 dark:text-purple-400 hover:underline transition-colors"
               >
                 Create an account
               </Link>

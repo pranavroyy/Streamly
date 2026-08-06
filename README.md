@@ -101,3 +101,13 @@ Docker will:
 2. Compile and run the backend image.
 3. Bundle and run the frontend image.
 All services will connect automatically.
+
+---
+
+## WebRTC / Known Limitations
+
+This demo uses STUN-only NAT traversal to facilitate peer-to-peer connections (`stun:stun.l.google.com:19302` and `stun:stun1.l.google.com:19302` by default, configurable via the `NEXT_PUBLIC_STUN_URLS` environment variable). 
+
+Because no TURN relay server is configured in the current setup, connections between peers located on separate restrictive or symmetric NAT networks (e.g., corporate firewalls, some mobile data networks) may fail to establish a direct peer-to-peer connection. 
+
+For a production deployment, you must deploy a TURN server (such as [coturn](https://github.com/coturn/coturn)) to relay traffic when direct P2P connection fails, and list its credentials and endpoint inside the `ICE_SERVERS` configuration in [webrtc.ts](file:///d:/Streamly/frontend/src/lib/webrtc.ts).

@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import dynamic from "next/dynamic";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
 import { roomsApi, RoomResponse, ParticipantResponse } from "@/lib/roomsApi";
@@ -9,8 +10,16 @@ import Link from "next/link";
 import { useSignaling } from "@/hooks/useSignaling";
 import { useCopyClipboard } from "@/hooks/useCopyClipboard";
 import { isRoomOwner } from "@/lib/utils";
-import DeleteRoomModal from "@/components/DeleteRoomModal";
+
+const DeleteRoomModal = dynamic(() => import("@/components/DeleteRoomModal"), {
+  ssr: false,
+});
 import { SignalingLogEntry, SignalingMessage } from "@/types/signaling";
+import { useMediaDevices } from "@/hooks/useMediaDevices";
+import { usePeerConnections } from "@/hooks/usePeerConnections";
+import { PermissionGate } from "@/components/webrtc/PermissionGate";
+import { VideoGrid } from "@/components/webrtc/VideoGrid";
+import { MediaControls } from "@/components/webrtc/MediaControls";
 import { 
   Radio, 
   ArrowLeft, 
@@ -52,10 +61,24 @@ function RoomDetailContent() {
   const [showLogPanel, setShowLogPanel] = useState(true);
   const [logFilter, setLogFilter] = useState<"ALL" | "SIGNALING" | "WEBRTC" | "ERROR">("ALL");
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
-  const [testTargetId, setTestTargetId] = useState<string>("");
 
   const roomIdStr = Array.isArray(id) ? id[0] : id;
   const currentUserId = user?.id ? String(user.id) : user?.email || "";
+
+  // WebRTC Media Capture Hook
+  const {
+    localStream,
+    mediaError,
+    isRequesting,
+    requestMedia,
+    stopMedia,
+  } = useMediaDevices();
+
+  const [localMuted, setLocalMuted] = useState(false);
+  const [localCameraOff, setLocalCameraOff] = useState(false);
+
+  // Ref to route signaling messages to the WebRTC orchestrator without circular dependency
+  const webrtcSignalHandlerRef = useRef<((msg: any) => void) | null>(null);
 
   // 1. Initial REST fetch for room baseline
   const fetchRoomDetails = useCallback(async () => {
@@ -87,11 +110,14 @@ function RoomDetailContent() {
     fetchRoomDetails();
   }, [fetchRoomDetails]);
 
-  // Handle incoming WS events to silently refresh room state
+  // Handle incoming WS events to refresh room state and route to WebRTC
   const handleWsMessage = useCallback(
     (msg: SignalingMessage) => {
       if (msg.type === "JOIN" || msg.type === "LEAVE" || msg.type === "ROOM_STATE") {
         refreshRoomData();
+      }
+      if (webrtcSignalHandlerRef.current) {
+        webrtcSignalHandlerRef.current(msg);
       }
     },
     [refreshRoomData]
@@ -149,16 +175,79 @@ function RoomDetailContent() {
     });
   }, [room, wsParticipants, currentUserId, user, roomIdStr]);
 
+  // 3. Initialize Peer Connection Orchestration Hook (`usePeerConnections`)
+  const {
+    peers,
+    disconnectAll,
+    handleSignalingMessage,
+  } = usePeerConnections({
+    localStream,
+    currentUserId,
+    participants: wsParticipants,
+    sendOffer,
+    sendAnswer,
+    sendIceCandidate,
+  });
+
+  // Link signaling handler ref
+  useEffect(() => {
+    webrtcSignalHandlerRef.current = handleSignalingMessage;
+    return () => {
+      webrtcSignalHandlerRef.current = null;
+    };
+  }, [handleSignalingMessage]);
+
   const handleCopyInvite = () => {
     if (typeof window !== "undefined") {
-      copy(window.location.href);
+      const inviteCode = room?.code || roomIdStr;
+      copy(`${window.location.origin}/rooms/${inviteCode}`);
     }
   };
+
+  const handleJoinCall = async () => {
+    try {
+      const stream = await requestMedia();
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = !localMuted;
+      });
+      stream.getVideoTracks().forEach((track) => {
+        track.enabled = !localCameraOff;
+      });
+    } catch (err) {
+      console.error("Failed to start camera/microphone:", err);
+    }
+  };
+
+  const handleToggleMute = useCallback(() => {
+    setLocalMuted((prev) => {
+      const next = !prev;
+      if (localStream) {
+        localStream.getAudioTracks().forEach((track) => {
+          track.enabled = !next;
+        });
+      }
+      return next;
+    });
+  }, [localStream]);
+
+  const handleToggleCamera = useCallback(() => {
+    setLocalCameraOff((prev) => {
+      const next = !prev;
+      if (localStream) {
+        localStream.getVideoTracks().forEach((track) => {
+          track.enabled = !next;
+        });
+      }
+      return next;
+    });
+  }, [localStream]);
 
   const handleLeave = async () => {
     if (!roomIdStr) return;
     setLeaving(true);
     try {
+      disconnectAll();
+      stopMedia();
       wsSendLeave();
       await roomsApi.leaveRoom(roomIdStr);
       router.push("/dashboard");
@@ -172,6 +261,8 @@ function RoomDetailContent() {
     if (!roomIdStr) return;
     setDeleting(true);
     try {
+      disconnectAll();
+      stopMedia();
       wsSendLeave();
       await roomsApi.deleteRoom(roomIdStr);
       setShowDeleteConfirm(false);
@@ -195,42 +286,73 @@ function RoomDetailContent() {
     });
   }, [signalingLogs, logFilter]);
 
-  // Test signaling actions
-  const targetUserForTest = testTargetId || displayParticipants.find((p) => String(p.userId) !== currentUserId)?.userId?.toString() || "2";
+  // Construct Video Tiles mapping local + active peers
+  const tiles = useMemo(() => {
+    const list: any[] = [];
+    
+    // Add local tile first
+    if (localStream) {
+      list.push({
+        userId: currentUserId,
+        stream: localStream,
+        label: user?.fullName || "You",
+        isMuted: localMuted,
+        isCameraOff: localCameraOff,
+        isLocal: true,
+      });
+    }
 
-  const handleSendTestOffer = () => {
-    sendOffer(targetUserForTest, `v=0\r\no=- ${Date.now()} 2 IN IP4 127.0.0.1\r\ns=StreamlyTestOffer`);
-  };
+    // Add active remote peers from signaling list
+    displayParticipants.forEach((p) => {
+      const peerId = String(p.userId);
+      if (peerId === currentUserId) return;
 
-  const handleSendTestAnswer = () => {
-    sendAnswer(targetUserForTest, `v=0\r\no=- ${Date.now()} 2 IN IP4 127.0.0.1\r\ns=StreamlyTestAnswer`);
-  };
+      const peerState = peers.get(peerId);
+      const remoteStream = peerState?.remoteStream || null;
 
-  const handleSendTestIce = () => {
-    sendIceCandidate(targetUserForTest, {
-      candidate: `candidate:842163049 1 udp 1677721601 192.168.1.5 ${Math.floor(Math.random() * 50000 + 10000)} typ host`,
-      sdpMid: "0",
-      sdpMLineIndex: 0,
+      // Heuristic: check if tracks are ended, disabled, or absent
+      const isPeerCameraOff = !remoteStream || 
+        remoteStream.getVideoTracks().length === 0 || 
+        remoteStream.getVideoTracks()[0].readyState === "ended" ||
+        !remoteStream.getVideoTracks()[0].enabled;
+        
+      const isPeerMuted = !remoteStream || 
+        remoteStream.getAudioTracks().length === 0 || 
+        remoteStream.getAudioTracks()[0].readyState === "ended" ||
+        !remoteStream.getAudioTracks()[0].enabled;
+
+      list.push({
+        userId: peerId,
+        stream: remoteStream,
+        label: p.userFullName || `User ${peerId}`,
+        isMuted: isPeerMuted,
+        isCameraOff: isPeerCameraOff,
+        connectionState: peerState?.connectionState,
+        isLocal: false,
+      });
     });
-  };
+
+    return list;
+  }, [localStream, currentUserId, user, localMuted, localCameraOff, displayParticipants, peers]);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-black to-zinc-950 flex flex-col justify-between text-zinc-100">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex flex-col justify-between transition-colors">
       {/* Ambient background glow */}
-      <div className="absolute top-0 left-1/3 w-[600px] h-[600px] bg-purple-600/10 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute top-0 left-1/3 w-[600px] h-[600px] bg-purple-500/5 dark:bg-purple-600/10 rounded-full blur-[140px] pointer-events-none" />
 
       {/* Main Studio Header */}
-      <header className="w-full border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md px-6 py-4 flex items-center justify-between z-40 sticky top-0 shadow-lg shadow-black/20">
+      <header className="w-full border-b border-zinc-200 dark:border-zinc-800/80 bg-white/80 dark:bg-zinc-950/90 backdrop-blur-md px-6 py-4 flex items-center justify-between z-40 sticky top-0 shadow-sm transition-colors">
         <div className="flex items-center gap-4">
           <Link
             href="/dashboard"
-            className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all flex items-center gap-2 text-xs font-medium"
+            prefetch={true}
+            className="p-2 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-all flex items-center gap-2 text-xs font-medium"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Dashboard</span>
           </Link>
 
-          <div className="h-4 w-px bg-zinc-800" />
+          <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800" />
 
           <div className="flex items-center gap-2">
             <div className="bg-purple-600 p-1.5 rounded-lg text-white">
@@ -367,7 +489,7 @@ function RoomDetailContent() {
                     <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full">
                       {room.status}
                     </span>
-                    <span className="text-xs text-zinc-500 font-mono">Room ID: #{room.id}</span>
+                    <span className="text-xs text-zinc-500 font-mono">Room Code: {room.code || `#${room.id}`}</span>
                   </div>
                   <h1 className="text-3xl font-extrabold text-white">{room.name}</h1>
                   <p className="text-xs text-zinc-400 flex items-center gap-1.5">
@@ -394,61 +516,28 @@ function RoomDetailContent() {
                 </div>
               </div>
 
-              {/* Participants Section */}
+              {/* Video Grid Section */}
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-white font-bold text-lg">
-                    <Users className="w-5 h-5 text-purple-400" />
-                    <h2>Active Participants ({displayParticipants.length})</h2>
+                {!localStream ? (
+                  <PermissionGate
+                    mediaError={mediaError}
+                    isRequesting={isRequesting}
+                    onRequestMedia={handleJoinCall}
+                  />
+                ) : (
+                  <div className="space-y-6">
+                    <VideoGrid tiles={tiles} />
+                    <div className="flex justify-center pt-2">
+                      <MediaControls
+                        isMuted={localMuted}
+                        isCameraOff={localCameraOff}
+                        onToggleMute={handleToggleMute}
+                        onToggleCamera={handleToggleCamera}
+                        onLeave={handleLeave}
+                      />
+                    </div>
                   </div>
-                  <span className="text-xs text-zinc-500 font-mono">
-                    Live STOMP state
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {displayParticipants.map((p) => {
-                    const isCurrent = currentUserId === String(p.userId) || user?.email === p.userEmail;
-                    const isHost = p.role === "HOST";
-
-                    return (
-                      <div
-                        key={`${p.id}-${p.userId}`}
-                        className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-4 flex items-center justify-between gap-3 shadow-md hover:border-zinc-700 transition-all"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm border ${
-                            isHost 
-                              ? "bg-amber-500/10 text-amber-400 border-amber-500/30" 
-                              : "bg-purple-600/10 text-purple-400 border-purple-500/20"
-                          }`}>
-                            {p.userFullName ? p.userFullName.charAt(0).toUpperCase() : "U"}
-                          </div>
-
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-white text-sm">{p.userFullName}</span>
-                              {isCurrent && (
-                                <span className="text-[9px] bg-purple-950 text-purple-300 border border-purple-800 px-1.5 py-0.2 rounded font-mono">
-                                  You
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-xs text-zinc-500 font-mono truncate max-w-[140px]">{p.userEmail}</p>
-                          </div>
-                        </div>
-
-                        <span className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-full border ${
-                          isHost
-                            ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                            : "bg-zinc-800 text-zinc-300 border-zinc-700"
-                        }`}>
-                          {p.role}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
+                )}
               </div>
             </div>
 
@@ -471,45 +560,21 @@ function RoomDetailContent() {
                   </button>
                 </div>
 
-                {/* Test Action Controls */}
+                {/* WebRTC Debug Tools */}
                 <div className="bg-black/50 border border-zinc-800 rounded-xl p-3 space-y-2">
                   <div className="flex items-center justify-between text-xs text-zinc-400 font-medium">
                     <span className="flex items-center gap-1 text-purple-300">
-                      <Zap className="w-3.5 h-3.5" /> Test WebRTC Relay Actions
+                      <Zap className="w-3.5 h-3.5" /> WebRTC Debug Tools
                     </span>
-                    <span className="font-mono text-[10px] text-zinc-500">Target ID: #{targetUserForTest}</span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 text-xs font-medium">
-                    <button
-                      onClick={handleSendTestOffer}
-                      disabled={wsStatus !== "CONNECTED"}
-                      className="bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 py-1.5 px-2.5 rounded-lg transition-all disabled:opacity-50 text-[11px] font-mono"
-                    >
-                      Send SDP Offer
-                    </button>
-                    <button
-                      onClick={handleSendTestAnswer}
-                      disabled={wsStatus !== "CONNECTED"}
-                      className="bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 py-1.5 px-2.5 rounded-lg transition-all disabled:opacity-50 text-[11px] font-mono"
-                    >
-                      Send SDP Answer
-                    </button>
-                    <button
-                      onClick={handleSendTestIce}
-                      disabled={wsStatus !== "CONNECTED"}
-                      className="bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 py-1.5 px-2.5 rounded-lg transition-all disabled:opacity-50 text-[11px] font-mono"
-                    >
-                      Send ICE Candidate
-                    </button>
-                    <button
-                      onClick={simulateNetworkDrop}
-                      className="bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-300 py-1.5 px-2.5 rounded-lg transition-all text-[11px] font-mono"
-                      title="Simulate connection drop to test exponential backoff reconnect"
-                    >
-                      Drop Connection
-                    </button>
-                  </div>
+                  <button
+                    onClick={simulateNetworkDrop}
+                    className="w-full bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-300 py-1.5 px-2.5 rounded-lg transition-all text-[11px] font-mono"
+                    title="Simulate connection drop to test exponential backoff reconnect"
+                  >
+                    Simulate WS Connection Drop
+                  </button>
                 </div>
 
                 {/* Filter Tabs */}

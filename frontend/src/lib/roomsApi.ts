@@ -15,6 +15,7 @@ export interface ParticipantResponse {
 
 export interface RoomResponse {
   id: number;
+  code: string;
   name: string;
   ownerId: number;
   ownerName: string;

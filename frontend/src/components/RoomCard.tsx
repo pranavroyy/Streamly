@@ -39,10 +39,11 @@ const RoomCard: React.FC<RoomCardProps> = memo(({ room, onRefresh }) => {
       e.preventDefault();
       e.stopPropagation();
       if (typeof window !== "undefined") {
-        copy(`${window.location.origin}/rooms/${room.id}`);
+        const identifier = room.code || room.id;
+        copy(`${window.location.origin}/rooms/${identifier}`);
       }
     },
-    [room.id, copy]
+    [room.id, room.code, copy]
   );
 
   const handleLeave = useCallback(async () => {
@@ -73,25 +74,25 @@ const RoomCard: React.FC<RoomCardProps> = memo(({ room, onRefresh }) => {
   }, [room.id, onRefresh]);
 
   return (
-    <div className="bg-zinc-900/80 border border-zinc-800 hover:border-zinc-700/80 rounded-2xl p-5 flex flex-col justify-between gap-5 transition-all shadow-lg hover:shadow-purple-900/10 group">
+    <div className="bg-white dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700/80 rounded-2xl p-5 flex flex-col justify-between gap-5 transition-all shadow-sm dark:shadow-lg group">
       {/* Header Info */}
       <div className="space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-purple-600/10 border border-purple-500/20 text-purple-400 rounded-xl">
+            <div className="p-2 bg-purple-50 dark:bg-purple-600/10 border border-purple-200 dark:border-purple-500/20 text-purple-600 dark:text-purple-400 rounded-xl">
               <Video className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="font-bold text-white text-base group-hover:text-purple-300 transition-colors line-clamp-1">
+              <h3 className="font-bold text-zinc-900 dark:text-white text-base group-hover:text-purple-600 dark:group-hover:text-purple-300 transition-colors line-clamp-1">
                 {room.name}
               </h3>
-              <p className="text-[11px] text-zinc-500 font-mono">ID: #{room.id}</p>
+              <p className="text-[11px] text-zinc-500 font-mono">Code: {room.code || `#${room.id}`}</p>
             </div>
           </div>
 
           <div className="flex items-center gap-1.5">
             {isOwner && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-semibold tracking-wider uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full">
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold tracking-wider uppercase bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20 px-2 py-0.5 rounded-full">
                 <Crown className="w-3 h-3" />
                 Owner
               </span>
@@ -99,8 +100,8 @@ const RoomCard: React.FC<RoomCardProps> = memo(({ room, onRefresh }) => {
             <span
               className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${
                 room.status === "ACTIVE"
-                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                  : "bg-zinc-800 text-zinc-400 border-zinc-700"
+                  ? "bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20"
+                  : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700"
               }`}
             >
               {room.status}
@@ -109,21 +110,21 @@ const RoomCard: React.FC<RoomCardProps> = memo(({ room, onRefresh }) => {
         </div>
 
         {/* Room metadata */}
-        <div className="flex items-center justify-between text-xs text-zinc-400 pt-1 border-t border-zinc-800/60">
+        <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400 pt-1 border-t border-zinc-100 dark:border-zinc-800/60">
           <div className="flex items-center gap-1.5">
-            <Users className="w-3.5 h-3.5 text-zinc-500" />
+            <Users className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500" />
             <span>{room.participants?.length || 0} Participant(s)</span>
           </div>
 
           <button
             onClick={handleCopyLink}
-            className="flex items-center gap-1 text-zinc-400 hover:text-purple-400 transition-colors text-[11px] bg-zinc-800/60 px-2 py-1 rounded-md"
+            className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400 hover:text-purple-600 dark:hover:text-purple-400 transition-colors text-[11px] bg-zinc-100 dark:bg-zinc-800/60 px-2 py-1 rounded-md"
             title="Copy Invite Link"
           >
             {copied ? (
               <>
-                <Check className="w-3 h-3 text-emerald-400" />
-                <span className="text-emerald-400">Copied</span>
+                <Check className="w-3 h-3 text-emerald-500" />
+                <span className="text-emerald-500">Copied</span>
               </>
             ) : (
               <>
@@ -135,7 +136,7 @@ const RoomCard: React.FC<RoomCardProps> = memo(({ room, onRefresh }) => {
         </div>
 
         {error && (
-          <div className="text-[11px] bg-red-500/10 text-red-400 border border-red-500/20 p-2 rounded-lg">
+          <div className="text-[11px] bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-500/20 p-2 rounded-lg">
             {error}
           </div>
         )}
@@ -144,8 +145,8 @@ const RoomCard: React.FC<RoomCardProps> = memo(({ room, onRefresh }) => {
       {/* Footer Actions */}
       <div className="flex items-center justify-between gap-2 pt-2">
         <Link
-          href={`/rooms/${room.id}`}
-          className="flex-1 inline-flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 text-white font-medium text-xs py-2.5 px-4 rounded-xl shadow-md shadow-purple-600/20 transition-all"
+          href={`/rooms/${room.code || room.id}`}
+          className="flex-1 inline-flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 text-white font-medium text-xs py-2 px-3.5 rounded-xl shadow-sm transition-all"
         >
           <span>Enter Studio</span>
           <ArrowRight className="w-3.5 h-3.5" />
@@ -155,7 +156,7 @@ const RoomCard: React.FC<RoomCardProps> = memo(({ room, onRefresh }) => {
         <button
           onClick={handleLeave}
           disabled={leaving}
-          className="p-2.5 text-zinc-400 hover:text-amber-400 hover:bg-amber-400/10 border border-zinc-800 hover:border-amber-400/30 rounded-xl transition-all"
+          className="p-2 text-zinc-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-amber-400 bg-zinc-100 dark:bg-zinc-800/80 hover:bg-amber-50 dark:hover:bg-amber-400/10 border border-zinc-200 dark:border-zinc-800 hover:border-amber-300 dark:hover:border-amber-400/30 rounded-xl transition-all"
           title="Leave Room"
         >
           {leaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
@@ -166,7 +167,7 @@ const RoomCard: React.FC<RoomCardProps> = memo(({ room, onRefresh }) => {
           <button
             onClick={() => setShowDeleteConfirm(true)}
             disabled={deleting}
-            className="p-2.5 text-zinc-400 hover:text-red-400 hover:bg-red-500/10 border border-zinc-800 hover:border-red-500/30 rounded-xl transition-all"
+            className="p-2 text-zinc-500 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 bg-zinc-100 dark:bg-zinc-800/80 hover:bg-red-50 dark:hover:bg-red-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-red-300 dark:hover:border-red-500/30 rounded-xl transition-all"
             title="Delete Room (Owner Only)"
           >
             {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}

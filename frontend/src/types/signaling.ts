@@ -7,6 +7,8 @@ export type SignalingMessageType =
   | 'ANSWER' 
   | 'ICE_CANDIDATE' 
   | 'ROOM_STATE' 
+  | 'START_RECORDING'
+  | 'STOP_RECORDING'
   | 'ERROR';
 
 export interface SignalingMessage<T = any> {

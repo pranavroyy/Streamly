@@ -17,6 +17,7 @@ const DeleteRoomModal = dynamic(() => import("@/components/DeleteRoomModal"), {
 import { SignalingLogEntry, SignalingMessage } from "@/types/signaling";
 import { useMediaDevices } from "@/hooks/useMediaDevices";
 import { usePeerConnections } from "@/hooks/usePeerConnections";
+import { useRecorder } from "@/hooks/useRecorder";
 import { PermissionGate } from "@/components/webrtc/PermissionGate";
 import { VideoGrid } from "@/components/webrtc/VideoGrid";
 import { MediaControls } from "@/components/webrtc/MediaControls";
@@ -110,11 +111,25 @@ function RoomDetailContent() {
     fetchRoomDetails();
   }, [fetchRoomDetails]);
 
-  // Handle incoming WS events to refresh room state and route to WebRTC
+  const isRecordingRef = useRef(false);
+  const startRecordingRef = useRef<() => void>();
+  const stopRecordingRef = useRef<() => void>();
+
+  // Handle incoming WS events to refresh room state, sync recording, and route to WebRTC
   const handleWsMessage = useCallback(
     (msg: SignalingMessage) => {
       if (msg.type === "JOIN" || msg.type === "LEAVE" || msg.type === "ROOM_STATE") {
         refreshRoomData();
+      }
+      if (msg.type === "START_RECORDING") {
+        if (!isRecordingRef.current) {
+          startRecordingRef.current?.();
+        }
+      }
+      if (msg.type === "STOP_RECORDING") {
+        if (isRecordingRef.current) {
+          stopRecordingRef.current?.();
+        }
       }
       if (webrtcSignalHandlerRef.current) {
         webrtcSignalHandlerRef.current(msg);
@@ -135,6 +150,8 @@ function RoomDetailContent() {
     sendAnswer,
     sendIceCandidate,
     sendLeave: wsSendLeave,
+    sendStartRecording,
+    sendStopRecordingSignal,
     clearLogs,
     simulateNetworkDrop,
   } = useSignaling({
@@ -188,6 +205,28 @@ function RoomDetailContent() {
     sendAnswer,
     sendIceCandidate,
   });
+
+  // 4. Initialize Local Media Stream Recorder Hook (`useRecorder`)
+  const {
+    isRecording,
+    formattedTime,
+    startRecording,
+    stopRecording,
+  } = useRecorder(localStream);
+
+  useEffect(() => {
+    isRecordingRef.current = isRecording;
+    startRecordingRef.current = startRecording;
+    stopRecordingRef.current = stopRecording;
+  }, [isRecording, startRecording, stopRecording]);
+
+  const handleToggleRecord = useCallback(() => {
+    if (isRecording) {
+      sendStopRecordingSignal();
+    } else {
+      sendStartRecording();
+    }
+  }, [isRecording, sendStartRecording, sendStopRecordingSignal]);
 
   // Link signaling handler ref
   useEffect(() => {
@@ -246,6 +285,10 @@ function RoomDetailContent() {
     if (!roomIdStr) return;
     setLeaving(true);
     try {
+      if (isRecording) {
+        sendStopRecordingSignal();
+      }
+      stopRecording();
       disconnectAll();
       stopMedia();
       wsSendLeave();
@@ -261,6 +304,10 @@ function RoomDetailContent() {
     if (!roomIdStr) return;
     setDeleting(true);
     try {
+      if (isRecording) {
+        sendStopRecordingSignal();
+      }
+      stopRecording();
       disconnectAll();
       stopMedia();
       wsSendLeave();
@@ -531,8 +578,11 @@ function RoomDetailContent() {
                       <MediaControls
                         isMuted={localMuted}
                         isCameraOff={localCameraOff}
+                        isRecording={isRecording}
+                        formattedTime={formattedTime}
                         onToggleMute={handleToggleMute}
                         onToggleCamera={handleToggleCamera}
+                        onToggleRecord={handleToggleRecord}
                         onLeave={handleLeave}
                       />
                     </div>

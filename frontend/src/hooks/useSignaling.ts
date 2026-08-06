@@ -341,6 +341,42 @@ export function useSignaling({
     disconnect();
   }, [disconnect]);
 
+  const sendStartRecording = useCallback(() => {
+    if (!clientRef.current?.connected || !roomId || !userId) return;
+
+    const startMsg: SignalingMessage = {
+      type: "START_RECORDING",
+      roomId,
+      senderId: userId,
+      payload: { timestamp: new Date().toISOString() },
+    };
+
+    clientRef.current.publish({
+      destination: `/topic/rooms/${roomId}`,
+      body: JSON.stringify(startMsg),
+    });
+
+    addLog("START_RECORDING", "out", `Broadcast START_RECORDING to room #${roomId}`, startMsg);
+  }, [roomId, userId, addLog]);
+
+  const sendStopRecordingSignal = useCallback(() => {
+    if (!clientRef.current?.connected || !roomId || !userId) return;
+
+    const stopMsg: SignalingMessage = {
+      type: "STOP_RECORDING",
+      roomId,
+      senderId: userId,
+      payload: { timestamp: new Date().toISOString() },
+    };
+
+    clientRef.current.publish({
+      destination: `/topic/rooms/${roomId}`,
+      body: JSON.stringify(stopMsg),
+    });
+
+    addLog("STOP_RECORDING", "out", `Broadcast STOP_RECORDING to room #${roomId}`, stopMsg);
+  }, [roomId, userId, addLog]);
+
   // Simulate network drop for testing exponential backoff reconnect
   const simulateNetworkDrop = useCallback(() => {
     addLog("SYSTEM", "system", "Simulating network drop...");
@@ -392,6 +428,8 @@ export function useSignaling({
     sendAnswer,
     sendIceCandidate,
     sendLeave,
+    sendStartRecording,
+    sendStopRecordingSignal,
     clearLogs,
     simulateNetworkDrop,
   };

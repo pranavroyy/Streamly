@@ -7,8 +7,8 @@ const PRESET_HEIGHTS = [35, 65, 30, 85, 55, 25, 75, 95, 45, 70, 30, 80, 50, 90, 
 
 const SAMPLE_CAPTIONS = [
   "Hello! What's up?",
-  "¡Hola! ¿Qué tal?",
   "Bonjour! Ça va?",
+  "नमस्ते! क्या हाल है?",
 ];
 
 export default function AnimatedAudioWaveform({
@@ -88,9 +88,8 @@ export default function AnimatedAudioWaveform({
             <span>[Transcribing]:</span>
           </div>
           <p
-            className={`truncate italic text-zinc-700 dark:text-zinc-300 font-normal leading-tight transition-opacity duration-300 ${
-              isVisible ? "opacity-100" : "opacity-0"
-            }`}
+            className={`truncate italic text-zinc-700 dark:text-zinc-300 font-normal leading-tight transition-opacity duration-300 ${isVisible ? "opacity-100" : "opacity-0"
+              }`}
           >
             "{captions[captionIndex]}"
           </p>

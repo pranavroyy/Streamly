@@ -1,11 +1,14 @@
 import React from "react";
-import { Mic, MicOff, Video, VideoOff, LogOut } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, LogOut, Circle, Square } from "lucide-react";
 
 interface MediaControlsProps {
   isMuted: boolean;
   isCameraOff: boolean;
+  isRecording?: boolean;
+  formattedTime?: string;
   onToggleMute: () => void;
   onToggleCamera: () => void;
+  onToggleRecord?: () => void;
   onLeave: () => void;
   disabled?: boolean;
 }
@@ -13,8 +16,11 @@ interface MediaControlsProps {
 export const MediaControls: React.FC<MediaControlsProps> = ({
   isMuted,
   isCameraOff,
+  isRecording = false,
+  formattedTime = "00:00",
   onToggleMute,
   onToggleCamera,
+  onToggleRecord,
   onLeave,
   disabled = false,
 }) => {
@@ -47,6 +53,30 @@ export const MediaControls: React.FC<MediaControlsProps> = ({
       >
         {isCameraOff ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
       </button>
+
+      {/* Record Toggle Button */}
+      {onToggleRecord && (
+        <button
+          onClick={onToggleRecord}
+          disabled={disabled}
+          className={`p-3.5 rounded-xl border transition-all flex items-center justify-center gap-2 ${
+            isRecording
+              ? "bg-red-950/40 border-red-500/40 text-red-400 hover:bg-red-950/60 font-mono text-xs font-semibold px-4"
+              : "bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-850 hover:text-white"
+          } disabled:opacity-50 disabled:cursor-not-allowed`}
+          title={isRecording ? "Stop Local Recording" : "Start Local Recording"}
+        >
+          {isRecording ? (
+            <>
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+              <span>{formattedTime}</span>
+              <Square className="w-4 h-4 text-red-400 fill-current ml-1" />
+            </>
+          ) : (
+            <Circle className="w-5 h-5 fill-red-500 text-red-500" />
+          )}
+        </button>
+      )}
 
       {/* Visual Divider */}
       <div className="h-6 w-px bg-zinc-800" />
